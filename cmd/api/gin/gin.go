@@ -8,7 +8,6 @@ func NewGinCmd() *cobra.Command {
 		Short: "生成 Gin 框架代码",
 	}
 
-	cmd.AddCommand(NewGinApiCmd())
 	cmd.AddCommand(NewGinSwaggerCmd())
 
 	return cmd

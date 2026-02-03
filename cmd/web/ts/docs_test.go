@@ -1,14 +1,14 @@
-package apiparser
+package ts
 
 import (
 	"fmt"
 	"testing"
 
 	"github.com/go-openapi/loads"
-	"github.com/swaggo/swag"
-
 	"github.com/ve-weiyi/pkg/utils/jsonconv"
 )
+
+const SWAGER_PATH = "/Users/weiyi/Github/veweiyi/goctlx/testdata/test.json"
 
 func Test_Load(t *testing.T) {
 	// Example with default loaders defined at the package level
@@ -21,13 +21,4 @@ func Test_Load(t *testing.T) {
 	sp := doc.Spec()
 
 	t.Log(jsonconv.AnyToJsonIndent(sp))
-}
-
-func Test_ParseAst(t *testing.T) {
-	p := swag.New()
-
-	p.ParseAPIMultiSearchDir([]string{"../../../blog-gin"}, "../../../blog-gin/main.go", 2)
-
-	swagger := p.GetSwagger()
-	fmt.Printf("Spec loaded: %v\n", jsonconv.AnyToJsonIndent(swagger))
 }

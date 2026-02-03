@@ -8,7 +8,7 @@ help:
 	@echo "  gen-model-ddl         - 从SQL文件生成数据库模型"
 	@echo "  gen-model-dsn         - 从数据库连接生成数据库模型"
 	@echo "  gen-web-ts-api        - 使用.api文件生成 TypeScript 代码"
-	@echo "  gen-web-ts-swagger    - 使用swagger.json文件生成 TypeScript 代码"
+	@echo "  gen-web-ts-swagger    - 使用swagger.json文件生成 TypeScript 代码（分组）"
 	@echo "  clean                 - 清理生成的代码"
 
 # 安装依赖
@@ -27,9 +27,9 @@ gen-api-gin-api:
 # 使用swagger.json文件生成 Gin 框架代码
 gen-api-gin-swagger:
 	go run main.go api gin swagger \
-		-f ../blog-gozero/service/api/blog/docs/blog.json \
+		-f ./testdata/test.json \
 		-t ./template/api/gin \
-		-o ../blog-gin/api/blog \
+		-o ./runtime/api/gin \
 		-c github.com/ve-weiyi/ve-blog-golang/blog-gin/svctx \
 		-n '%s.go'
 
@@ -57,13 +57,11 @@ gen-web-ts-api:
 		-o ./runtime/web/ts/blog/api \
 		-n '%v.ts'
 
-# 使用swagger.json文件生成 TypeScript 代码
+# 使用swagger.json文件生成 TypeScript 代码（分组）
 gen-web-ts-swagger:
 	go run main.go web ts swagger \
-		-f ../blog-gozero/service/api/blog/docs/blog.json \
-		-t ./template/web/ts \
-		-o ./runtime/web/ts/blog/api \
-		-n '%v.ts'
+		-f ./testdata/test.json \
+		-o ./runtime/web/ts
 
 # 清理生成的代码
 clean:
