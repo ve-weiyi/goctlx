@@ -11,6 +11,7 @@ type ApiService struct {
 type Type struct {
 	Name    string
 	Comment string
+	Extends []string
 	Fields  []Field
 }
 
@@ -25,6 +26,7 @@ type Field struct {
 
 // ApiGroup 表示 API 分组
 type ApiGroup struct {
+	Name       string
 	Prefix     string
 	Tag        string
 	Middleware []string

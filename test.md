@@ -61,9 +61,23 @@ go run main.go web ts api \
 
 
 ```sh
+	go run main.go web ts api \
+      -f /Users/weiyi/Github/sparkinai/sparkinai-cloud/service/api/app/proto/app.api \
+      -o ./runtime/web/ts
+```
+
+```sh
 	go run main.go web ts swagger \
       -f ./testdata/test.json \
       -o ./runtime/web/ts
+```
+
+
+
+```sh
+	go run main.go web ts api \
+      -f /Users/weiyi/Github/sparkinai/sparkinai-cloud/service/api/app/proto/app.api \
+      -o /Users/weiyi/Github/sparkinai/sparkinai-app/src/api 
 ```
 
 ```sh

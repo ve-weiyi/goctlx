@@ -29,6 +29,8 @@ func ConvertGoTypeToTsType(goType string) string {
 		return "number"
 	case "bool":
 		return "boolean"
+	case "byte":
+		return "number"
 	case "interface{}", "any":
 		return "any"
 	default:

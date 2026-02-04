@@ -80,17 +80,28 @@ func generateTypesFile(filePath string, data *apispec.ApiService) error {
 
 	for _, t := range data.Types {
 		if t.Comment != "" {
-			fmt.Fprintf(f, "// %s\n", t.Comment)
+			comment := strings.TrimSpace(strings.TrimPrefix(t.Comment, "//"))
+			fmt.Fprintf(f, "// %s\n", comment)
 		}
-		fmt.Fprintf(f, "export interface %s {\n", t.Name)
+
+		if len(t.Extends) > 0 {
+			extends := strings.Join(t.Extends, ", ")
+			fmt.Fprintf(f, "export interface %s extends %s {\n", t.Name, extends)
+		} else {
+			fmt.Fprintf(f, "export interface %s {\n", t.Name)
+		}
+
 		for _, field := range t.Fields {
+			if field.Name == "" {
+				continue
+			}
 			nullable := ""
 			if field.Nullable {
 				nullable = "?"
 			}
 			comment := ""
 			if field.Comment != "" {
-				comment = " // " + field.Comment
+				comment = " // " + strings.TrimSpace(strings.TrimPrefix(field.Comment, "//"))
 			}
 			tsType := ConvertGoTypeToTsType(field.Type)
 			fmt.Fprintf(f, "  %s%s: %s;%s\n", field.Name, nullable, tsType, comment)
@@ -115,10 +126,10 @@ func generateApiFile(filePath string, group apispec.ApiGroup) error {
 	typeSet := make(map[string]bool)
 	for _, route := range group.Routes {
 		if route.Request != "" {
-			typeSet[route.Request] = true
+			typeSet[extractBaseTypeName(route.Request)] = true
 		}
 		if route.Response != "" {
-			typeSet[route.Response] = true
+			typeSet[extractBaseTypeName(route.Response)] = true
 		}
 	}
 
@@ -138,7 +149,7 @@ func generateApiFile(filePath string, group apispec.ApiGroup) error {
 	fmt.Fprintln(f)
 
 	// API 对象
-	groupName := strings.Title(group.Prefix)
+	groupName := strings.Title(group.Name)
 	if groupName == "" {
 		groupName = "Default"
 	}
@@ -149,48 +160,98 @@ func generateApiFile(filePath string, group apispec.ApiGroup) error {
 	fmt.Fprintf(f, "export const %sAPI = {\n", groupName)
 
 	for _, route := range group.Routes {
-		generateApiMethod(f, route)
+		generateApiMethod(f, route, group)
 	}
 
 	fmt.Fprintln(f, "};")
 	return nil
 }
 
-func generateApiMethod(f *os.File, route apispec.Route) {
+func generateApiMethod(f *os.File, route apispec.Route, group apispec.ApiGroup) {
 	if route.Summary != "" {
-		fmt.Fprintf(f, "  /** %s */\n", route.Summary)
+		summary := strings.Trim(route.Summary, "\"")
+		fmt.Fprintf(f, "  /** %s */\n", summary)
 	}
+
+	isGetRequest := strings.ToUpper(route.Method) == "GET"
 
 	// 函数参数
 	var params []string
 	if route.Request != "" {
-		params = append(params, fmt.Sprintf("data?: %s", route.Request))
-	}
-	if len(route.QueryParams) > 0 {
-		params = append(params, "params?: Record<string, any>")
+		if isGetRequest {
+			params = append(params, fmt.Sprintf("params?: %s", route.Request))
+		} else {
+			params = append(params, fmt.Sprintf("data?: %s", route.Request))
+		}
 	}
 	reqParam := strings.Join(params, ", ")
 
 	response := "any"
 	if route.Response != "" {
-		response = route.Response
+		response = ConvertGoTypeToTsType(route.Response)
 	}
 
 	fmt.Fprintf(f, "  %s(%s): Promise<IApiResponse<%s>> {\n", route.Handler, reqParam, response)
 
 	// Request 调用
 	fmt.Fprintln(f, "    return request({")
-	fmt.Fprintf(f, "      url: \"%s\",\n", route.Path)
-	fmt.Fprintf(f, "      method: \"%s\",\n", route.Method)
+	// 拼接 prefix 和 path
+	url := route.Path
+	if group.Prefix != "" && group.Prefix != "default" {
+		url = group.Prefix + route.Path
+	}
+	// 转换路径参数 :id -> ${data.id}
+	if strings.Contains(url, ":") {
+		// 使用模板字符串，从 data 中提取参数
+		paramSource := "data"
+		if isGetRequest {
+			paramSource = "params"
+		}
+		url = strings.ReplaceAll(url, ":", "${"+paramSource+".")
+		// 为每个参数添加结束符
+		parts := strings.Split(url, "${")
+		for i := 1; i < len(parts); i++ {
+			idx := strings.IndexAny(parts[i], "/")
+			if idx == -1 {
+				parts[i] = parts[i] + "}"
+			} else {
+				parts[i] = parts[i][:idx] + "}" + parts[i][idx:]
+			}
+		}
+		url = strings.Join(parts, "${")
+	}
+	// 统一使用模板字符串
+	fmt.Fprintf(f, "      url: `%s`,\n", url)
+	fmt.Fprintf(f, "      method: \"%s\",\n", strings.ToUpper(route.Method))
 
 	if route.Request != "" {
-		fmt.Fprintln(f, "      data: data,")
-	}
-	if len(route.QueryParams) > 0 {
-		fmt.Fprintln(f, "      params: params,")
+		if isGetRequest {
+			fmt.Fprintln(f, "      params: params,")
+		} else {
+			fmt.Fprintln(f, "      data: data,")
+		}
 	}
 
 	fmt.Fprintln(f, "    });")
 	fmt.Fprintln(f, "  },")
 	fmt.Fprintln(f)
+}
+
+func extractBaseTypeName(typeName string) string {
+	// 移除 []*  []  * 等前缀
+	typeName = strings.TrimPrefix(typeName, "[]*")
+	typeName = strings.TrimPrefix(typeName, "[]")
+	typeName = strings.TrimPrefix(typeName, "*")
+	return typeName
+}
+
+func extractPathParams(path string) []string {
+	var params []string
+	parts := strings.Split(path, "/")
+	for _, part := range parts {
+		if strings.HasPrefix(part, ":") {
+			params = append(params, strings.TrimPrefix(part, ":"))
+		}
+	}
+	return params
 }

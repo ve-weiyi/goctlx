@@ -10,6 +10,7 @@ func NewTypescriptCmd() *cobra.Command {
 		Short: "生成 TypeScript 代码",
 	}
 
+	cmd.AddCommand(NewTypescriptApiCmd())
 	cmd.AddCommand(NewTypescriptSwaggerCmd())
 	return cmd
 }
