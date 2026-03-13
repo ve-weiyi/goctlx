@@ -1,4 +1,4 @@
-package dbparser
+package dbspec
 
 import (
 	"gorm.io/driver/mysql"

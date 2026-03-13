@@ -10,7 +10,7 @@ import (
 	"github.com/zeromicro/go-zero/tools/goctl/api/parser"
 	"github.com/zeromicro/go-zero/tools/goctl/api/spec"
 
-	"github.com/ve-weiyi/goctlx/apispec"
+	"github.com/ve-weiyi/goctlx/parserx/apispec"
 )
 
 var typescriptApiFlags = struct {
@@ -56,8 +56,13 @@ func runTypescriptApi(cmd *cobra.Command, args []string) error {
 	}
 	fmt.Printf("✅ Generated: %s/types.ts\n", typescriptApiFlags.OutPath)
 
+	// 收集所有 API 导出信息
+	var apiExports []ApiExport
+
 	for _, group := range apiService.ApiGroups {
-		fileName := fmt.Sprintf("%s/%s.ts", typescriptApiFlags.OutPath, group.Name)
+		// 使用辅助函数将路径转换为 snake_case 文件名
+		safeFileName := ConvertPathToSnakeCase(group.Name)
+		fileName := fmt.Sprintf("%s/%s.ts", typescriptApiFlags.OutPath, safeFileName)
 		fileDir := filepath.Dir(fileName)
 		if err = os.MkdirAll(fileDir, 0755); err != nil {
 			return fmt.Errorf("failed to create directory: %w", err)
@@ -66,7 +71,21 @@ func runTypescriptApi(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("failed to generate api file: %w", err)
 		}
 		fmt.Printf("✅ Generated: %s\n", fileName)
+
+		// 收集导出信息
+		apiName := ConvertPathToPascalCase(group.Name) + "API"
+		apiExports = append(apiExports, ApiExport{
+			FileName: safeFileName,
+			ApiName:  apiName,
+		})
 	}
+
+	// 生成 index.ts 文件
+	indexFile := filepath.Join(typescriptApiFlags.OutPath, "index.ts")
+	if err = generateIndexFile(indexFile, apiExports); err != nil {
+		return fmt.Errorf("failed to generate index file: %w", err)
+	}
+	fmt.Printf("✅ Generated: %s\n", indexFile)
 
 	fmt.Println("TypeScript code generated successfully")
 	return nil

@@ -27,7 +27,7 @@ type (
         Save(ctx context.Context, in *{{.UpperStartCamelName}}) (rows int64, err error)
 		// 查询
 		FindById(ctx context.Context, id int64) (out *{{.UpperStartCamelName}}, err error)
-		FindOne(ctx context.Context, conditions string, args ...interface{}) (out *{{.UpperStartCamelName}}, err error)
+		FindOne(ctx context.Context, sorts string, conditions string, args ...interface{}) (out *{{.UpperStartCamelName}}, err error)
 		FindALL(ctx context.Context, conditions string, args ...interface{}) (list []*{{.UpperStartCamelName}}, err error)
 	    FindCount(ctx context.Context, conditions string, args ...interface{}) (count int64, err error)
 		FindListAndTotal(ctx context.Context, page int, size int, sorts string, conditions string, args ...interface{}) (list []*{{.UpperStartCamelName}}, total int64, err error)
@@ -171,12 +171,17 @@ func (m *default{{.UpperStartCamelName}}Model) FindById(ctx context.Context, id 
 }
 
 // 查询记录
-func (m *default{{.UpperStartCamelName}}Model) FindOne(ctx context.Context, conditions string, args ...interface{}) (out *{{.UpperStartCamelName}}, err error) {
+func (m *default{{.UpperStartCamelName}}Model) FindOne(ctx context.Context, sorts string, conditions string, args ...interface{}) (out *{{.UpperStartCamelName}}, err error) {
 	db := m.DbEngin.WithContext(ctx).Table(m.table)
 
 	// 如果有条件语句
 	if len(conditions) != 0 {
 		db = db.Where(conditions, args...)
+	}
+
+	// 如果有排序参数
+	if len(sorts) != 0 {
+		db = db.Order(sorts)
 	}
 
 	err = db.First(&out).Error

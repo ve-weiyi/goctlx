@@ -10,7 +10,7 @@ import (
 )
 
 const SWAGER_PATH = "/Users/weiyi/Github/veweiyi/goctlx/testdata/test.json"
-const API_PATH = "/Users/weiyi/Github/sparkinai/sparkinai-cloud/service/api/app/proto/app.api"
+const API_PATH = "/Users/weiyi/Github/sparkinai/service/api/app/proto/app.api"
 
 func Test_Load(t *testing.T) {
 	// Example with default loaders defined at the package level

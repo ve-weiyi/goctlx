@@ -4,11 +4,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/spf13/cobra"
 
-	"github.com/ve-weiyi/goctlx/apispec"
+	apispec2 "github.com/ve-weiyi/goctlx/parserx/apispec"
 )
 
 var typescriptSwaggerFlags = struct {
@@ -39,7 +40,7 @@ func runTypescriptSwagger(cmd *cobra.Command, args []string) error {
 	fmt.Println("====================")
 
 	// 解析 swagger.json
-	apiData, err := apispec.ParseSwaggerFromFile(typescriptSwaggerFlags.ApiFile)
+	apiData, err := apispec2.ParseSwaggerFromFile(typescriptSwaggerFlags.ApiFile)
 	if err != nil {
 		return err
 	}
@@ -56,6 +57,9 @@ func runTypescriptSwagger(cmd *cobra.Command, args []string) error {
 	}
 	fmt.Printf("✅ Generated: %s\n", typesFile)
 
+	// 收集所有 API 导出信息
+	var apiExports []ApiExport
+
 	// 为每个分组生成独立的 API 文件
 	for _, group := range apiData.ApiGroups {
 		fileName := fmt.Sprintf("%s.ts", strings.ToLower(group.Prefix))
@@ -64,14 +68,28 @@ func runTypescriptSwagger(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("failed to generate api file: %w", err)
 		}
 		fmt.Printf("✅ Generated: %s\n", outputFile)
+
+		// 收集导出信息
+		apiName := ConvertPathToPascalCase(group.Name) + "API"
+		apiExports = append(apiExports, ApiExport{
+			FileName: strings.TrimSuffix(fileName, ".ts"),
+			ApiName:  apiName,
+		})
 	}
+
+	// 生成 index.ts 文件
+	indexFile := filepath.Join(typescriptSwaggerFlags.OutPath, "index.ts")
+	if err := generateIndexFile(indexFile, apiExports); err != nil {
+		return fmt.Errorf("failed to generate index file: %w", err)
+	}
+	fmt.Printf("✅ Generated: %s\n", indexFile)
 
 	return nil
 }
 
 // ============ 代码生成 ============
 
-func generateTypesFile(filePath string, data *apispec.ApiService) error {
+func generateTypesFile(filePath string, data *apispec2.ApiService) error {
 	f, err := os.Create(filePath)
 	if err != nil {
 		return err
@@ -112,7 +130,7 @@ func generateTypesFile(filePath string, data *apispec.ApiService) error {
 	return nil
 }
 
-func generateApiFile(filePath string, group apispec.ApiGroup) error {
+func generateApiFile(filePath string, group apispec2.ApiGroup) error {
 	f, err := os.Create(filePath)
 	if err != nil {
 		return err
@@ -135,21 +153,29 @@ func generateApiFile(filePath string, group apispec.ApiGroup) error {
 
 	// 生成类型导入
 	if len(typeSet) > 0 {
-		fmt.Fprint(f, `import type { `)
-		i := 0
+		// 按字母排序
+		typeNames := make([]string, 0, len(typeSet))
 		for typeName := range typeSet {
-			if i > 0 {
-				fmt.Fprint(f, ", ")
-			}
-			fmt.Fprint(f, typeName)
-			i++
+			typeNames = append(typeNames, typeName)
 		}
-		fmt.Fprintln(f, ` } from "./types";`)
+		sort.Strings(typeNames)
+
+		fmt.Fprintln(f, `import type {`)
+		for i, typeName := range typeNames {
+			if i < len(typeNames)-1 {
+				fmt.Fprintf(f, "  %s,\n", typeName)
+			} else {
+				fmt.Fprintf(f, "  %s\n", typeName)
+			}
+		}
+		fmt.Fprintln(f, `} from "./types";`)
 	}
 	fmt.Fprintln(f)
 
 	// API 对象
-	groupName := strings.Title(group.Name)
+	// 使用辅助函数将路径转换为 PascalCase 标识符
+	// 例如: "Payment/package_" -> "PaymentPackage"
+	groupName := ConvertPathToPascalCase(group.Name)
 	if groupName == "" {
 		groupName = "Default"
 	}
@@ -167,7 +193,7 @@ func generateApiFile(filePath string, group apispec.ApiGroup) error {
 	return nil
 }
 
-func generateApiMethod(f *os.File, route apispec.Route, group apispec.ApiGroup) {
+func generateApiMethod(f *os.File, route apispec2.Route, group apispec2.ApiGroup) {
 	if route.Summary != "" {
 		summary := strings.Trim(route.Summary, "\"")
 		fmt.Fprintf(f, "  /** %s */\n", summary)
@@ -254,4 +280,24 @@ func extractPathParams(path string) []string {
 		}
 	}
 	return params
+}
+
+// generateIndexFile 生成 index.ts 文件，统一导出所有 API
+func generateIndexFile(filePath string, apiExports []ApiExport) error {
+	f, err := os.Create(filePath)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	// 导出 types
+	fmt.Fprintln(f, "export * from './types';")
+	fmt.Fprintln(f)
+
+	// 导出所有 API
+	for _, export := range apiExports {
+		fmt.Fprintf(f, "export { %s } from './%s';\n", export.ApiName, export.FileName)
+	}
+
+	return nil
 }
