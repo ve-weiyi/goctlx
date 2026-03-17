@@ -5,7 +5,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/ve-weiyi/goctlx/parserx/dbparser"
+	"github.com/ve-weiyi/goctlx/parserx/dbspec"
 )
 
 var dsnFlags = struct {
@@ -43,7 +43,7 @@ func runMysqlDSN(cmd *cobra.Command, args []string) error {
 	fmt.Printf("name-as: %s\n", dsnFlags.NameAs)
 	fmt.Println("====================")
 
-	tables, err := dbparser.ParseTableFromDsn(dsnFlags.Url)
+	tables, err := dbspec.ParseTableFromDsn(dsnFlags.Url)
 	if err != nil {
 		return err
 	}

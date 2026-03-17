@@ -1,14 +1,16 @@
-package apiparser
+package ts
 
 import (
 	"fmt"
 	"testing"
 
 	"github.com/go-openapi/loads"
-	"github.com/swaggo/swag"
-
 	"github.com/ve-weiyi/pkg/utils/jsonconv"
+	"github.com/zeromicro/go-zero/tools/goctl/api/parser"
 )
+
+const SWAGER_PATH = "/Users/weiyi/Github/veweiyi/goctlx/testdata/test.json"
+const API_PATH = "/Users/weiyi/Github/sparkinai/service/api/app/proto/app.api"
 
 func Test_Load(t *testing.T) {
 	// Example with default loaders defined at the package level
@@ -23,11 +25,11 @@ func Test_Load(t *testing.T) {
 	t.Log(jsonconv.AnyToJsonIndent(sp))
 }
 
-func Test_ParseAst(t *testing.T) {
-	p := swag.New()
+func Test_Parser(t *testing.T) {
+	parse, err := parser.Parse(API_PATH)
+	if err != nil {
+		return
+	}
 
-	p.ParseAPIMultiSearchDir([]string{"../../../blog-gin"}, "../../../blog-gin/main.go", 2)
-
-	swagger := p.GetSwagger()
-	fmt.Printf("Spec loaded: %v\n", jsonconv.AnyToJsonIndent(swagger))
+	t.Log(jsonconv.AnyToJsonIndent(parse))
 }

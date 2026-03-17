@@ -5,7 +5,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/ve-weiyi/goctlx/parserx/dbparser"
+	"github.com/ve-weiyi/goctlx/parserx/dbspec"
 )
 
 var ddlFlags = struct {
@@ -44,7 +44,7 @@ func runMysqlDDL(cmd *cobra.Command, args []string) error {
 	fmt.Printf("name-as: %s\n", ddlFlags.NameAs)
 	fmt.Println("====================")
 
-	tables, err := dbparser.ParseTableFromSql(ddlFlags.SqlFile)
+	tables, err := dbspec.ParseTableFromSql(ddlFlags.SqlFile)
 	if err != nil {
 		return err
 	}

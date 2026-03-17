@@ -1,4 +1,4 @@
-package dbparser
+package dbspec
 
 // 表解析
 type (

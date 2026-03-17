@@ -5,11 +5,11 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/ve-weiyi/goctlx/parserx/dbparser"
+	"github.com/ve-weiyi/goctlx/parserx/dbspec"
 	"github.com/ve-weiyi/pkg/utils/jsonconv"
 )
 
-func ConvertTableToData(table *dbparser.Table) *ModelData {
+func ConvertTableToData(table *dbspec.Table) *ModelData {
 
 	var fs []*ModelField
 	for _, e := range table.Fields {
@@ -48,7 +48,7 @@ func ConvertTableToData(table *dbparser.Table) *ModelData {
 	return data
 }
 
-func ConvertField(f *dbparser.Field) *ModelField {
+func ConvertField(f *dbspec.Field) *ModelField {
 	return &ModelField{
 		Name:    jsonconv.Case2Camel(f.Name),
 		Type:    strings.TrimPrefix(f.DataType, "u"),

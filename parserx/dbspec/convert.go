@@ -1,4 +1,4 @@
-package dbparser
+package dbspec
 
 var commonMysqlDataTypeMapString = map[string]string{
 	// For consistency, all integer types are converted to int64

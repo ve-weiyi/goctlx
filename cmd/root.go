@@ -22,7 +22,6 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/ve-weiyi/goctlx/cmd/api"
 	"github.com/ve-weiyi/goctlx/cmd/model"
 	"github.com/ve-weiyi/goctlx/cmd/web"
 )
@@ -34,7 +33,6 @@ func newRootCmd() *cobra.Command {
 		Version: fmt.Sprintf("%s %s/%s", "v1.0.0", runtime.GOOS, runtime.GOARCH),
 	}
 
-	rootCmd.AddCommand(api.NewRootCmd())
 	rootCmd.AddCommand(model.NewRootCmd())
 	rootCmd.AddCommand(web.NewRootCmd())
 
