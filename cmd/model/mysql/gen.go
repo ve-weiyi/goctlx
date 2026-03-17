@@ -5,7 +5,7 @@ import (
 	"os"
 	"path"
 
-	"github.com/ve-weiyi/pkg/kit/quickstart/gotplgen"
+	"github.com/ve-weiyi/pkg/quickstart/gotplgen"
 	"github.com/ve-weiyi/pkg/utils/filex"
 	"github.com/ve-weiyi/pkg/utils/jsonconv"
 )

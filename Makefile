@@ -31,28 +31,28 @@ test-web-ts-swagger:
 # 测试 TypeScript api 生成
 test-web-ts-api:
 	go run main.go web ts api \
-		-f /Users/weiyi/Github/sparkinai/sparkinai-cloud/service/admin/api/proto/admin.api \
+		-f /Users/weiyi/Github/veweiyi/sparkinai/sparkinai-cloud/service/admin/api/proto/admin.api \
 		-o ./runtime/web/ts
 
 # 为 sparkinai 项目生成数据库模型
 gen-model-sparkinai:
 	go run main.go model mysql ddl \
-		-s /Users/weiyi/Github/sparkinai/sparkinai-cloud/sparkinai.sql \
+		-s /Users/weiyi/Github/veweiyi/sparkinai/sparkinai-cloud/sparkinai.sql \
 		-t ./template/model/model.tpl \
-		-o /Users/weiyi/Github/sparkinai/sparkinai-cloud/service/app/model \
+		-o /Users/weiyi/Github/veweiyi/sparkinai/sparkinai-cloud/service/app/model \
 		-n '%v_model.go'
 
 # 为 sparkinai-app 生成 TypeScript API
 gen-web-ts-app:
 	go run main.go web ts api \
-		-f /Users/weiyi/Github/sparkinai/sparkinai-cloud/service/app/api/proto/app.api \
-		-o /Users/weiyi/Github/sparkinai/sparkinai-app/src/api
+		-f /Users/weiyi/Github/veweiyi/sparkinai/sparkinai-cloud/service/app/api/proto/app.api \
+		-o /Users/weiyi/Github/veweiyi/sparkinai/sparkinai-app/src/api
 
 # 为 sparkinai-admin 生成 TypeScript API
 gen-web-ts-admin:
 	go run main.go web ts api \
-		-f /Users/weiyi/Github/sparkinai/sparkinai-cloud/service/admin/api/proto/admin.api \
-		-o /Users/weiyi/Github/sparkinai/sparkinai-admin/src/api
+		-f /Users/weiyi/Github/veweiyi/sparkinai/sparkinai-cloud/service/admin/api/proto/admin.api \
+		-o /Users/weiyi/Github/veweiyi/sparkinai/sparkinai-admin/src/api
 
 # 清理生成的代码
 clean:
