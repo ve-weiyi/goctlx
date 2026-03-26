@@ -161,12 +161,8 @@ func generateApiFile(filePath string, group apispec2.ApiGroup) error {
 		sort.Strings(typeNames)
 
 		fmt.Fprintln(f, `import type {`)
-		for i, typeName := range typeNames {
-			if i < len(typeNames)-1 {
-				fmt.Fprintf(f, "  %s,\n", typeName)
-			} else {
-				fmt.Fprintf(f, "  %s\n", typeName)
-			}
+		for _, typeName := range typeNames {
+			fmt.Fprintf(f, "  %s,\n", typeName)
 		}
 		fmt.Fprintln(f, `} from "./types";`)
 	}
