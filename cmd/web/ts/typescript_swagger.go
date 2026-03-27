@@ -291,6 +291,9 @@ func generateIndexFile(filePath string, apiExports []ApiExport) error {
 	fmt.Fprintln(f)
 
 	// 导出所有 API
+	sort.Slice(apiExports, func(i, j int) bool {
+		return apiExports[i].ApiName < apiExports[j].ApiName
+	})
 	for _, export := range apiExports {
 		fmt.Fprintf(f, "export { %s } from './%s';\n", export.ApiName, export.FileName)
 	}
