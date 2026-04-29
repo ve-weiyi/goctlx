@@ -34,3 +34,4 @@ config.yaml
 admin-api.yaml
 test.*
 any_test.go
+Makefile
