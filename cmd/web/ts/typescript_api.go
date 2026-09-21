@@ -45,44 +45,48 @@ func runTypescriptApi(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to parse api file: %w", err)
 	}
 
-	apiService := convertApiSpecToService(apiSpec)
+	return generateFromApiService(typescriptApiFlags.OutPath, convertApiSpecToService(apiSpec))
+}
 
-	if err = os.MkdirAll(typescriptApiFlags.OutPath, 0755); err != nil {
+func generateFromApiService(outPath string, apiData *apispec.ApiService) error {
+	if err := cleanOutputDir(outPath); err != nil {
+		return fmt.Errorf("failed to clean output directory: %w", err)
+	}
+
+	if err := os.MkdirAll(outPath, 0755); err != nil {
 		return fmt.Errorf("failed to create output directory: %w", err)
 	}
 
-	if err = generateTypesFile(typescriptApiFlags.OutPath+"/types.ts", apiService); err != nil {
+	typesFile := filepath.Join(outPath, "types.ts")
+	if err := generateTypesFile(typesFile, apiData); err != nil {
 		return fmt.Errorf("failed to generate types file: %w", err)
 	}
-	fmt.Printf("✅ Generated: %s/types.ts\n", typescriptApiFlags.OutPath)
+	fmt.Printf("✅ Generated: %s\n", typesFile)
 
-	// 收集所有 API 导出信息
 	var apiExports []ApiExport
-
-	for _, group := range apiService.ApiGroups {
-		// 使用辅助函数将路径转换为 snake_case 文件名
-		safeFileName := ConvertPathToSnakeCase(group.Name)
-		fileName := fmt.Sprintf("%s/%s.ts", typescriptApiFlags.OutPath, safeFileName)
-		fileDir := filepath.Dir(fileName)
-		if err = os.MkdirAll(fileDir, 0755); err != nil {
-			return fmt.Errorf("failed to create directory: %w", err)
+	for _, group := range apiData.Groups {
+		safeFileName := ConvertPathToKebabCase(group.Name)
+		if safeFileName == "" {
+			safeFileName = strings.ToLower(group.Prefix)
 		}
-		if err = generateApiFile(fileName, group); err != nil {
+		apiFile := filepath.Join(outPath, safeFileName+".ts")
+		if dir := filepath.Dir(apiFile); dir != outPath {
+			if err := os.MkdirAll(dir, 0755); err != nil {
+				return fmt.Errorf("failed to create directory: %w", err)
+			}
+		}
+		if err := generateApiFile(apiFile, group); err != nil {
 			return fmt.Errorf("failed to generate api file: %w", err)
 		}
-		fmt.Printf("✅ Generated: %s\n", fileName)
-
-		// 收集导出信息
-		apiName := ConvertPathToPascalCase(group.Name) + "API"
+		fmt.Printf("✅ Generated: %s\n", apiFile)
 		apiExports = append(apiExports, ApiExport{
 			FileName: safeFileName,
-			ApiName:  apiName,
+			ApiName:  LastSegmentPascalCase(group.Name) + "API",
 		})
 	}
 
-	// 生成 index.ts 文件
-	indexFile := filepath.Join(typescriptApiFlags.OutPath, "index.ts")
-	if err = generateIndexFile(indexFile, apiExports); err != nil {
+	indexFile := filepath.Join(outPath, "index.ts")
+	if err := generateIndexFile(indexFile, apiExports); err != nil {
 		return fmt.Errorf("failed to generate index file: %w", err)
 	}
 	fmt.Printf("✅ Generated: %s\n", indexFile)
@@ -91,12 +95,41 @@ func runTypescriptApi(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
+// cleanOutputDir 生成前清空输出目录。
+// 契约换域（如 permission/ → access/）后旧文件不会被覆盖，留在原处会让前端
+// 同时存在新旧两套 URL；goctl 同样不清理残留文件，这里由本工具负责。
+// 目录里已有本工具生成的 index.ts 才允许清理，避免 -o 指错目录时误删。
+func cleanOutputDir(outPath string) error {
+	entries, err := os.ReadDir(outPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	if len(entries) == 0 {
+		return nil
+	}
+	if _, err := os.Stat(filepath.Join(outPath, "index.ts")); err != nil {
+		return fmt.Errorf("输出目录 %s 中未见本工具生成的 index.ts，已中止以免误删", outPath)
+	}
+	for _, entry := range entries {
+		if err := os.RemoveAll(filepath.Join(outPath, entry.Name())); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func convertApiSpecToService(apiSpec *spec.ApiSpec) *apispec.ApiService {
 	service := &apispec.ApiService{
-		Name:      apiSpec.Info.Properties["title"],
-		Types:     []apispec.Type{},
-		ApiGroups: []apispec.ApiGroup{},
+		Name:   apiSpec.Info.Properties["title"],
+		Types:  []apispec.Type{},
+		Groups: []apispec.ApiGroup{},
 	}
+
+	// 建立类型名 → 字段列表的索引
+	typeFields := make(map[string][]apispec.Field)
 
 	for _, typ := range apiSpec.Types {
 		if defStruct, ok := typ.(spec.DefineStruct); ok {
@@ -112,26 +145,17 @@ func convertApiSpecToService(apiSpec *spec.ApiSpec) *apispec.ApiService {
 			for _, member := range defStruct.Members {
 				if member.IsInline {
 					inlineTypes = append(inlineTypes, member.Type.Name())
+					// 将内联类型的字段也加入
+					if inherited, ok := typeFields[member.Type.Name()]; ok {
+						t.Fields = append(t.Fields, inherited...)
+					}
 					continue
 				}
-				fieldName := member.Name
-				if member.Tag != "" {
-					if jsonName := extractJsonName(member.Tag); jsonName != "" {
-						fieldName = jsonName
-					}
-				}
-				// 检查是否为 optional
-				isOptional := strings.Contains(member.Tag, "optional")
-				field := apispec.Field{
-					Name:     fieldName,
-					Type:     member.Type.Name(),
-					Tag:      member.Tag,
-					Comment:  member.Comment,
-					Nullable: isOptional,
-				}
+				field := parseField(member)
 				t.Fields = append(t.Fields, field)
 			}
 			t.Extends = inlineTypes
+			typeFields[t.Name] = t.Fields
 			service.Types = append(service.Types, t)
 		}
 	}
@@ -147,7 +171,7 @@ func convertApiSpecToService(apiSpec *spec.ApiSpec) *apispec.ApiService {
 			groupMap[groupName] = &apispec.ApiGroup{
 				Name:       groupName,
 				Prefix:     group.GetAnnotation("prefix"),
-				Tag:        group.GetAnnotation("tags"),
+				Label:      group.GetAnnotation("tags"),
 				Middleware: []string{},
 				Routes:     []apispec.Route{},
 			}
@@ -159,15 +183,16 @@ func convertApiSpecToService(apiSpec *spec.ApiSpec) *apispec.ApiService {
 				handler = strings.ToLower(handler[:1]) + handler[1:]
 			}
 			r := apispec.Route{
-				Handler:     handler,
-				Summary:     route.AtDoc.Text,
-				Path:        route.Path,
-				Method:      route.Method,
-				QueryParams: []apispec.QueryParam{},
+				Handler: handler,
+				Summary: route.AtDoc.Text,
+				Path:    route.Path,
+				Method:  route.Method,
 			}
 
 			if route.RequestType != nil {
-				r.Request = route.RequestType.Name()
+				reqName := route.RequestType.Name()
+				r.Request = reqName
+				r.Params = typeFields[reqName]
 			}
 			if route.ResponseType != nil {
 				r.Response = route.ResponseType.Name()
@@ -181,52 +206,72 @@ func convertApiSpecToService(apiSpec *spec.ApiSpec) *apispec.ApiService {
 		if group.Prefix == "" {
 			group.Prefix = groupName
 		}
-		service.ApiGroups = append(service.ApiGroups, *group)
+		service.Groups = append(service.Groups, *group)
 	}
 
 	return service
 }
 
-func extractJsonName(tag string) string {
-	if tag == "" {
-		return ""
+func parseField(member spec.Member) apispec.Field {
+	field := apispec.Field{
+		Name:     member.Name,
+		Type:     member.Type.Name(),
+		Location: apispec.LocationBody,
+		Comment:  member.Comment,
 	}
 
-	// 优先使用 json tag
-	if start := strings.Index(tag, "json:\""); start != -1 {
-		start += 6
-		if end := strings.Index(tag[start:], "\""); end != -1 {
-			jsonTag := tag[start : start+end]
-			if idx := strings.Index(jsonTag, ","); idx != -1 {
-				jsonTag = jsonTag[:idx]
-			}
-			return jsonTag
+	if member.Tag == "" {
+		return field
+	}
+
+	tagTypes := []struct {
+		key string
+		loc apispec.ParamLocation
+	}{
+		{"json", apispec.LocationBody},
+		{"form", apispec.LocationForm},
+		{"path", apispec.LocationPath},
+		{"header", apispec.LocationHeader},
+	}
+
+	for _, tt := range tagTypes {
+		name, opts := parseTagValue(member.Tag, tt.key)
+		if name != "" {
+			field.Name = name
+			field.Location = tt.loc
+			field.Optional = containsWord(opts, "optional")
+			return field
 		}
 	}
+	return field
+}
 
-	// 其次使用 form tag
-	if start := strings.Index(tag, "form:\""); start != -1 {
-		start += 6
-		if end := strings.Index(tag[start:], "\""); end != -1 {
-			formTag := tag[start : start+end]
-			if idx := strings.Index(formTag, ","); idx != -1 {
-				formTag = formTag[:idx]
-			}
-			return formTag
+// parseTagValue 从 tag 字符串中提取指定 key 的值和选项
+// 例如: parseTagValue("`json:\"name,optional\"`", "json") → ("name", ["optional"])
+func parseTagValue(tag, key string) (string, []string) {
+	prefix := key + ":\""
+	start := strings.Index(tag, prefix)
+	if start == -1 {
+		return "", nil
+	}
+	start += len(prefix)
+	end := strings.Index(tag[start:], "\"")
+	if end == -1 {
+		return "", nil
+	}
+	value := tag[start : start+end]
+	parts := strings.Split(value, ",")
+	if len(parts) == 0 {
+		return "", nil
+	}
+	return parts[0], parts[1:]
+}
+
+func containsWord(opts []string, word string) bool {
+	for _, opt := range opts {
+		if strings.TrimSpace(opt) == word {
+			return true
 		}
 	}
-
-	// 最后使用 path tag
-	if start := strings.Index(tag, "path:\""); start != -1 {
-		start += 6
-		if end := strings.Index(tag[start:], "\""); end != -1 {
-			pathTag := tag[start : start+end]
-			if idx := strings.Index(pathTag, ","); idx != -1 {
-				pathTag = pathTag[:idx]
-			}
-			return pathTag
-		}
-	}
-
-	return ""
+	return false
 }

@@ -22,6 +22,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/ve-weiyi/goctlx/cmd/api"
 	"github.com/ve-weiyi/goctlx/cmd/model"
 	"github.com/ve-weiyi/goctlx/cmd/web"
 )
@@ -29,10 +30,11 @@ import (
 func newRootCmd() *cobra.Command {
 	rootCmd := &cobra.Command{
 		Use:     "tools",
-		Short:   "ve-blog-golang 代码生成工具",
+		Short:   "blog 代码生成工具",
 		Version: fmt.Sprintf("%s %s/%s", "v1.0.0", runtime.GOOS, runtime.GOARCH),
 	}
 
+	rootCmd.AddCommand(api.NewRootCmd())
 	rootCmd.AddCommand(model.NewRootCmd())
 	rootCmd.AddCommand(web.NewRootCmd())
 

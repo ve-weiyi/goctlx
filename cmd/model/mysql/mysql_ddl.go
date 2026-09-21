@@ -5,7 +5,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/ve-weiyi/goctlx/parserx/dbspec"
+	"github.com/ve-weiyi/goctlx/parserx/sqlspec"
 )
 
 var ddlFlags = struct {
@@ -44,14 +44,14 @@ func runMysqlDDL(cmd *cobra.Command, args []string) error {
 	fmt.Printf("name-as: %s\n", ddlFlags.NameAs)
 	fmt.Println("====================")
 
-	tables, err := dbspec.ParseTableFromSql(ddlFlags.SqlFile)
+	tables, err := sqlspec.ParseTablesFromSQL(ddlFlags.SqlFile)
 	if err != nil {
 		return err
 	}
 
 	var models []*ModelData
 	for _, table := range tables {
-		m := ConvertTableToData(table)
+		m := ConvertTableMetaToData(table)
 		models = append(models, m)
 	}
 

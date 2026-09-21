@@ -1,6 +1,6 @@
 # goctlx - 代码生成工具
 
-sparkinai-cloud 项目的代码生成工具，用于从 API 定义文件和数据库自动生成前端和数据库模型代码，提高开发效率。
+blog-cloud 项目的代码生成工具，用于从 API 定义文件和数据库自动生成前端和数据库模型代码，提高开发效率。
 
 ## 目录结构
 
@@ -71,10 +71,10 @@ make deps
 make test-model              # 测试 model 生成
 make test-web-ts-swagger     # 测试 TypeScript swagger 生成
 
-# Sparkinai 项目命令
-make gen-model-sparkinai     # 为 sparkinai 项目生成数据库模型
-make gen-web-ts-app          # 为 sparkinai-app 生成 TypeScript API
-make gen-web-ts-admin        # 为 sparkinai-admin 生成 TypeScript API
+# Blog 项目命令
+make gen-model-blog     # 为 blog 项目生成数据库模型
+make gen-web-ts-app          # 为 blog-app 生成 TypeScript API
+make gen-web-ts-admin        # 为 blog-admin 生成 TypeScript API
 
 # 清理生成的代码
 make clean
@@ -148,7 +148,7 @@ go run main.go web ts swagger \
 
 ## 使用场景
 
-1. **数据库变更** - 修改 SQL 文件后，运行 `make gen-model-sparkinai` 更新模型
+1. **数据库变更** - 修改 SQL 文件后，运行 `make gen-model-blog` 更新模型
 2. **前后端协作** - 运行 `make gen-web-ts-app` 或 `make gen-web-ts-admin` 生成前端 TypeScript 代码
 3. **已有 Swagger** - 从现有 Swagger 文档生成 TypeScript 代码
 

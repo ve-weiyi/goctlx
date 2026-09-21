@@ -20,9 +20,9 @@ func ParseSwaggerFromFile(filePath string) (*ApiService, error) {
 // ParseSwagger 解析 Swagger 规范为 ApiService
 func ParseSwagger(swagger *spec.Swagger) *ApiService {
 	service := &ApiService{
-		Name:      "API",
-		Types:     []Type{},
-		ApiGroups: []ApiGroup{},
+		Name:   "API",
+		Types:  []Type{},
+		Groups: []ApiGroup{},
 	}
 
 	// 解析 definitions
@@ -37,9 +37,9 @@ func ParseSwagger(swagger *spec.Swagger) *ApiService {
 			field := Field{
 				Name:     propName,
 				Type:     SwaggerTypeToGo(prop),
-				Tag:      BuildTag(propName, !Contains(schema.Required, propName)),
+				Location: LocationBody,
 				Comment:  prop.Description,
-				Nullable: !Contains(schema.Required, propName),
+				Optional: !Contains(schema.Required, propName),
 			}
 			t.Fields = append(t.Fields, field)
 		}
@@ -71,8 +71,9 @@ func ParseSwagger(swagger *spec.Swagger) *ApiService {
 
 			if groupMap[groupKey] == nil {
 				groupMap[groupKey] = &ApiGroup{
-					Prefix:     groupKey,
-					Tag:        tag,
+					Name:       groupKey,
+					Prefix:     "",
+					Label:      tag,
 					Middleware: []string{},
 					Routes:     []Route{},
 				}
@@ -84,7 +85,7 @@ func ParseSwagger(swagger *spec.Swagger) *ApiService {
 	}
 
 	for _, group := range groupMap {
-		service.ApiGroups = append(service.ApiGroups, *group)
+		service.Groups = append(service.Groups, *group)
 	}
 
 	return service
@@ -96,11 +97,18 @@ func ExtractGroupKey(operationID, defaultTag string) string {
 		return defaultTag
 	}
 
+	// 按 `/` 分割
+	if idx := strings.Index(operationID, "/"); idx != -1 {
+		return strings.ToLower(operationID[:idx])
+	}
+
+	// 按 `_` 分割
 	parts := strings.Split(operationID, "_")
 	if len(parts) > 1 {
 		return parts[0]
 	}
 
+	// 按驼峰分割
 	for i, r := range operationID {
 		if i > 0 && r >= 'A' && r <= 'Z' {
 			return strings.ToLower(operationID[:i])
@@ -114,6 +122,11 @@ func ExtractGroupKey(operationID, defaultTag string) string {
 func ExtractHandlerName(operationID string) string {
 	if operationID == "" {
 		return operationID
+	}
+
+	// 按 `/` 分割
+	if idx := strings.Index(operationID, "/"); idx != -1 {
+		return lowerFirst(operationID[idx+1:])
 	}
 
 	// 按下划线分割
@@ -149,26 +162,24 @@ func ParseOperation(op *spec.Operation, path, method string) Route {
 	}
 
 	route := Route{
-		Handler:     handlerName,
-		Summary:     op.Summary,
-		Path:        path,
-		Method:      strings.ToUpper(method),
-		QueryParams: []QueryParam{},
+		Handler: handlerName,
+		Summary: op.Summary,
+		Path:    path,
+		Method:  strings.ToUpper(method),
 	}
 
 	// 解析请求参数
 	for _, param := range op.Parameters {
 		if param.In == "body" && param.Schema != nil && param.Schema.Ref.String() != "" {
 			route.Request = GetRefName(param.Schema.Ref.String())
-			break
 		} else if param.In == "query" {
-			qp := QueryParam{
-				Name:        param.Name,
-				Type:        param.Type,
-				Description: param.Description,
-				Required:    param.Required,
-			}
-			route.QueryParams = append(route.QueryParams, qp)
+			route.Params = append(route.Params, Field{
+				Name:     param.Name,
+				Type:     param.Type,
+				Location: LocationForm,
+				Comment:  param.Description,
+				Optional: !param.Required,
+			})
 		}
 	}
 
@@ -225,15 +236,6 @@ func SwaggerTypeToGo(schema spec.Schema) string {
 	default:
 		return "interface{}"
 	}
-}
-
-// BuildTag 构建字段标签
-func BuildTag(fieldName string, optional bool) string {
-	jsonTag := fieldName
-	if optional {
-		jsonTag += ",omitempty"
-	}
-	return fmt.Sprintf("`json:\"%s\"`", jsonTag)
 }
 
 // GetRefName 从引用路径中提取名称

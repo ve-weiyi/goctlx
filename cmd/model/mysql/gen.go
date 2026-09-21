@@ -4,10 +4,11 @@ import (
 	"fmt"
 	"os"
 	"path"
+	"strings"
 
-	"github.com/ve-weiyi/pkg/quickstart/gotplgen"
-	"github.com/ve-weiyi/pkg/utils/filex"
-	"github.com/ve-weiyi/pkg/utils/jsonconv"
+	"github.com/zeromicro/go-zero/tools/goctl/util"
+
+	"github.com/ve-weiyi/goctlx/x/gofile"
 )
 
 type (
@@ -21,78 +22,73 @@ type (
 	}
 
 	ModelField struct {
-		Name string // 属性名称  Name
-		Type string // 属性类型  string、int、bool、float、{UpperStartCamelName}
-
+		Name    string // 属性名称  Name
+		Type    string // 属性类型  string、int、bool、float、{UpperStartCamelName}
+		Column  string // 数据库列名
 		Tag     string // json tag
 		Comment string // 行尾注释
 	}
 )
 
 func generateModel(models []*ModelData, tplPath string, outPath string, nameAs string) error {
-	var metas []gotplgen.TemplateMeta
-
-	tpl, err := os.ReadFile(filex.ToAbs(tplPath))
+	tpl, err := os.ReadFile(tplPath)
 	if err != nil {
 		return err
 	}
 
-	for _, model := range models {
-		meta := gotplgen.TemplateMeta{
-			Mode:           gotplgen.ModeCreateOrReplace,
-			CodeOutPath:    path.Join(outPath, fmt.Sprintf(nameAs, model.TableName)),
-			TemplateString: string(tpl),
-			FunMap: map[string]any{
-				"funcFieldsKey": func(fs []*ModelField) string {
-					var name string
-					for _, ff := range fs {
-						name += ff.Name
-					}
-					return name
-				},
-				"funcFieldsKeyVar": func(fs []*ModelField) string {
-					var name string
-					for _, ff := range fs {
-						v := jsonconv.Case2Snake(ff.Name)
-						tp := ff.Type
-						if name != "" {
-							name += ", "
-						}
-						name += fmt.Sprintf("%s %s", v, extractBaseType(tp))
-					}
-					return name
-				},
-				"funcFieldsKeyCond": func(fs []*ModelField) string {
-					var name string
-					for _, ff := range fs {
-						v := jsonconv.Case2Snake(ff.Name)
-						if name != "" {
-							name += " and "
-						}
-						name += fmt.Sprintf("`%s` = ?", v)
-					}
-					return name
-				},
-				"funcFieldsKeyCondVar": func(fs []*ModelField) string {
-					var name string
-					for _, ff := range fs {
-						v := jsonconv.Case2Snake(ff.Name)
-						if name != "" {
-							name += ", "
-						}
-						name += v
-					}
-					return name
-				},
-			},
-			Data: model,
-		}
-		metas = append(metas, meta)
+	t := util.With("model").Parse(string(tpl))
+	for name, fn := range map[string]any{
+		"funcFieldsKey": func(fs []*ModelField) string {
+			var name string
+			for _, ff := range fs {
+				name += ff.Name
+			}
+			return name
+		},
+		"funcFieldsKeyVar": func(fs []*ModelField) string {
+			var name string
+			for _, ff := range fs {
+				v := ff.Column
+				tp := ff.Type
+				if name != "" {
+					name += ", "
+				}
+				name += fmt.Sprintf("%s %s", v, extractBaseType(tp))
+			}
+			return name
+		},
+		"funcFieldsKeyCond": func(fs []*ModelField) string {
+			var name string
+			for _, ff := range fs {
+				v := ff.Column
+				if name != "" {
+					name += " and "
+				}
+				name += fmt.Sprintf("`%s` = ?", v)
+			}
+			return name
+		},
+		"funcFieldsKeyCondVar": func(fs []*ModelField) string {
+			var name string
+			for _, ff := range fs {
+				v := ff.Column
+				if name != "" {
+					name += ", "
+				}
+				name += v
+			}
+			return name
+		},
+	} {
+		t.AddFunc(name, fn)
 	}
 
-	for _, m := range metas {
-		err := m.Execute()
+	for _, model := range models {
+		buf, err := t.Execute(model)
 		if err != nil {
+			return err
+		}
+		if err := gofile.Write(path.Join(outPath, fmt.Sprintf(nameAs, model.TableName)), buf.Bytes()); err != nil {
 			return err
 		}
 	}
@@ -120,6 +116,6 @@ func extractBaseType(dataType string) string {
 	case "sql.NullTime":
 		return "time.Time"
 	default:
-		return dataType
+		return strings.TrimPrefix(dataType, "*")
 	}
 }
