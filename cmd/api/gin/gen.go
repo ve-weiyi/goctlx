@@ -41,7 +41,7 @@ func generateAll(service *apispec.ApiService, tplPath, outPath, contextPackage s
 	if err := generateRoutes(service, tplPath, outPath, contextPackage); err != nil {
 		return fmt.Errorf("generate routes: %w", err)
 	}
-	fmt.Println("Gin code generated successfully")
+	fmt.Println("✅ Gin code generated")
 	return nil
 }
 

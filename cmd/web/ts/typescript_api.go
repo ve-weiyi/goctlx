@@ -91,7 +91,7 @@ func generateFromApiService(outPath string, apiData *apispec.ApiService) error {
 	}
 	fmt.Printf("✅ Generated: %s\n", indexFile)
 
-	fmt.Println("TypeScript code generated successfully")
+	fmt.Println("✅ TypeScript code generated")
 	return nil
 }
 
@@ -111,7 +111,7 @@ func cleanOutputDir(outPath string) error {
 		return nil
 	}
 	if _, err := os.Stat(filepath.Join(outPath, "index.ts")); err != nil {
-		return fmt.Errorf("输出目录 %s 中未见本工具生成的 index.ts，已中止以免误删", outPath)
+		return fmt.Errorf("no generated index.ts found in %s, aborting to avoid deleting unrelated files", outPath)
 	}
 	for _, entry := range entries {
 		if err := os.RemoveAll(filepath.Join(outPath, entry.Name())); err != nil {
@@ -128,7 +128,16 @@ func convertApiSpecToService(apiSpec *spec.ApiSpec) *apispec.ApiService {
 		Groups: []apispec.ApiGroup{},
 	}
 
-	// 建立类型名 → 字段列表的索引
+	// 建立类型名 → 字段列表的索引：路由参数要靠它取请求体字段
+	typeFields := convertTypes(apiSpec, service)
+	service.Groups = convertGroups(apiSpec, typeFields)
+
+	return service
+}
+
+// convertTypes 把 DefineStruct 转成内部类型并挂到 service 上，
+// 返回「类型名 → 字段列表」索引（内联类型的字段已展开进来）。
+func convertTypes(apiSpec *spec.ApiSpec, service *apispec.ApiService) map[string][]apispec.Field {
 	typeFields := make(map[string][]apispec.Field)
 
 	for _, typ := range apiSpec.Types {
@@ -151,15 +160,18 @@ func convertApiSpecToService(apiSpec *spec.ApiSpec) *apispec.ApiService {
 					}
 					continue
 				}
-				field := parseField(member)
-				t.Fields = append(t.Fields, field)
+				t.Fields = append(t.Fields, parseField(member))
 			}
 			t.Extends = inlineTypes
 			typeFields[t.Name] = t.Fields
 			service.Types = append(service.Types, t)
 		}
 	}
+	return typeFields
+}
 
+// convertGroups 转换 group/route；prefix 缺省时退化为 group 名，请求体字段取自 typeFields。
+func convertGroups(apiSpec *spec.ApiSpec, typeFields map[string][]apispec.Field) []apispec.ApiGroup {
 	groupMap := make(map[string]*apispec.ApiGroup)
 	for _, group := range apiSpec.Service.Groups {
 		groupName := group.GetAnnotation("group")
@@ -202,14 +214,14 @@ func convertApiSpecToService(apiSpec *spec.ApiSpec) *apispec.ApiService {
 		}
 	}
 
+	var groups []apispec.ApiGroup
 	for groupName, group := range groupMap {
 		if group.Prefix == "" {
 			group.Prefix = groupName
 		}
-		service.Groups = append(service.Groups, *group)
+		groups = append(groups, *group)
 	}
-
-	return service
+	return groups
 }
 
 func parseField(member spec.Member) apispec.Field {

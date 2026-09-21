@@ -1,5 +1,5 @@
 /*
-Copyright © 2024 NAME HERE <EMAIL ADDRESS>
+Copyright © 2024 ve-weiyi
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -27,11 +27,15 @@ import (
 	"github.com/ve-weiyi/goctlx/cmd/web"
 )
 
+// Version 构建时由 -ldflags "-X github.com/ve-weiyi/goctlx/cmd.Version=vX.Y.Z" 注入，
+// 未注入时显示 dev，避免把版本号写死在源码里而与仓库版本脱节。
+var Version = "dev"
+
 func newRootCmd() *cobra.Command {
 	rootCmd := &cobra.Command{
 		Use:     "tools",
 		Short:   "blog 代码生成工具",
-		Version: fmt.Sprintf("%s %s/%s", "v1.0.0", runtime.GOOS, runtime.GOARCH),
+		Version: fmt.Sprintf("%s %s/%s", Version, runtime.GOOS, runtime.GOARCH),
 	}
 
 	rootCmd.AddCommand(api.NewRootCmd())

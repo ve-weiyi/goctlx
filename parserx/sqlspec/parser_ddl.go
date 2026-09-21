@@ -139,9 +139,38 @@ func ParseTablesFromSQL(filename string) ([]*TableMeta, error) {
 }
 
 func buildTableMetaFromDDL(t *ddlparser.Table, colTypes map[string]string, colDefaults map[string]string, ns namingStrategy) (*TableMeta, error) {
-	multiColUnique := make(map[string]string) // columnName → indexName
-	multiColPrio := make(map[string]int)      // columnName → priority
-	tablePK := make(map[string]bool)          // columns that are table-level primary key
+	tablePK, multiColUnique, multiColPrio := collectTableConstraints(t)
+
+	tm := &TableMeta{
+		Name:        t.Name,
+		StructName:  ns.SchemaName(t.Name),
+		UniqueIndex: make(map[string][]*FieldMeta),
+	}
+
+	for _, col := range t.Columns {
+		if col == nil {
+			continue
+		}
+
+		fm, err := buildFieldFromDDLColumn(col, colTypes, colDefaults, multiColUnique, multiColPrio, tablePK, ns)
+		if err != nil {
+			return nil, err
+		}
+		tm.Fields = append(tm.Fields, fm)
+
+		registerUniqueIndex(tm, fm, col, multiColUnique, tablePK)
+	}
+
+	sortUniqueIndexFields(tm, multiColPrio)
+
+	return tm, nil
+}
+
+// collectTableConstraints 汇总表级约束：主键列集合，以及多列唯一索引的「列 → 索引名/序号」。
+func collectTableConstraints(t *ddlparser.Table) (tablePK map[string]bool, multiColUnique map[string]string, multiColPrio map[string]int) {
+	tablePK = make(map[string]bool)          // columns that are table-level primary key
+	multiColUnique = make(map[string]string) // columnName → indexName
+	multiColPrio = make(map[string]int)      // columnName → priority
 
 	for _, c := range t.Constraints {
 		if len(c.ColumnPrimaryKey) > 0 {
@@ -157,76 +186,71 @@ func buildTableMetaFromDDL(t *ddlparser.Table, colTypes map[string]string, colDe
 			}
 		}
 	}
+	return
+}
 
-	tm := &TableMeta{
-		Name:        t.Name,
-		StructName:  ns.SchemaName(t.Name),
-		UniqueIndex: make(map[string][]*FieldMeta),
+// buildFieldFromDDLColumn 把一列转成 FieldMeta（Go 类型推导 + gorm tag）。
+func buildFieldFromDDLColumn(col *ddlparser.Column, colTypes map[string]string, colDefaults map[string]string,
+	multiColUnique map[string]string, multiColPrio map[string]int, tablePK map[string]bool, ns namingStrategy) (*FieldMeta, error) {
+	baseType, ok := ddlTypeToMySQL[col.DataType.Type()]
+	if !ok {
+		return nil, fmt.Errorf("unsupported data type enum: %v", col.DataType.Type())
 	}
 
-	for _, col := range t.Columns {
-		if col == nil {
-			continue
-		}
-
-		baseType, ok := ddlTypeToMySQL[col.DataType.Type()]
-		if !ok {
-			return nil, fmt.Errorf("unsupported data type enum: %v", col.DataType.Type())
-		}
-
-		// Use full type from SQL text if available, otherwise fall back to base type
-		fullType := baseType
-		if ft, ok := colTypes[col.Name]; ok {
-			fullType = ft
-		}
-
-		goType := mapMySQLType(baseType)
-
-		if col.Name == "deleted_at" && goType == "time.Time" {
-			goType = "gorm.DeletedAt"
-		}
-
-		isPK := (col.Constraint != nil && col.Constraint.Primary) || tablePK[col.Name]
-		isNullable := !isPK && (col.Constraint == nil || !col.Constraint.NotNull)
-		goType = wrapPtrType(goType, isNullable)
-
-		gormTag := buildDDLGormTag(col, fullType, multiColUnique, multiColPrio, tablePK, colDefaults)
-
-		fm := &FieldMeta{
-			Name:    ns.SchemaName(col.Name),
-			Type:    goType,
-			GormTag: gormTag,
-			JsonTag: col.Name,
-		}
-
-		if col.Constraint != nil {
-			fm.Comment = col.Constraint.Comment
-		}
-
-		tm.Fields = append(tm.Fields, fm)
-
-		if col.Constraint != nil && !(col.Constraint.Primary || tablePK[col.Name]) {
-			if idxName, ok := multiColUnique[col.Name]; ok {
-				fmCopy := *fm
-				tm.UniqueIndex[idxName] = append(tm.UniqueIndex[idxName], &fmCopy)
-			}
-			if col.Constraint.Unique {
-				idxName := "uk_" + col.Name
-				if _, exists := multiColUnique[col.Name]; !exists || idxName != multiColUnique[col.Name] {
-					fmCopy := *fm
-					tm.UniqueIndex[idxName] = append(tm.UniqueIndex[idxName], &fmCopy)
-				}
-			}
-		}
+	// Use full type from SQL text if available, otherwise fall back to base type
+	fullType := baseType
+	if ft, ok := colTypes[col.Name]; ok {
+		fullType = ft
 	}
 
+	goType := mapMySQLType(baseType)
+
+	if col.Name == "deleted_at" && goType == "time.Time" {
+		goType = "gorm.DeletedAt"
+	}
+
+	isPK := (col.Constraint != nil && col.Constraint.Primary) || tablePK[col.Name]
+	isNullable := !isPK && (col.Constraint == nil || !col.Constraint.NotNull)
+	goType = wrapPtrType(goType, isNullable)
+
+	fm := &FieldMeta{
+		Name:    ns.SchemaName(col.Name),
+		Type:    goType,
+		GormTag: buildDDLGormTag(col, fullType, multiColUnique, multiColPrio, tablePK, colDefaults),
+		JsonTag: col.Name,
+	}
+
+	if col.Constraint != nil {
+		fm.Comment = col.Constraint.Comment
+	}
+	return fm, nil
+}
+
+// registerUniqueIndex 把该列登记进表级唯一索引（主键列不参与）。
+func registerUniqueIndex(tm *TableMeta, fm *FieldMeta, col *ddlparser.Column, multiColUnique map[string]string, tablePK map[string]bool) {
+	if col.Constraint == nil || col.Constraint.Primary || tablePK[col.Name] {
+		return
+	}
+	if idxName, ok := multiColUnique[col.Name]; ok {
+		fmCopy := *fm
+		tm.UniqueIndex[idxName] = append(tm.UniqueIndex[idxName], &fmCopy)
+	}
+	if col.Constraint.Unique {
+		idxName := "uk_" + col.Name
+		if _, exists := multiColUnique[col.Name]; !exists || idxName != multiColUnique[col.Name] {
+			fmCopy := *fm
+			tm.UniqueIndex[idxName] = append(tm.UniqueIndex[idxName], &fmCopy)
+		}
+	}
+}
+
+// sortUniqueIndexFields 让每个唯一索引内的字段按列序号稳定排序。
+func sortUniqueIndexFields(tm *TableMeta, multiColPrio map[string]int) {
 	for _, fields := range tm.UniqueIndex {
 		sort.SliceStable(fields, func(i, j int) bool {
 			return multiColPrio[fields[i].JsonTag] < multiColPrio[fields[j].JsonTag]
 		})
 	}
-
-	return tm, nil
 }
 
 func buildDDLGormTag(col *ddlparser.Column, mysqlType string, multiColUnique map[string]string, multiColPrio map[string]int, tablePK map[string]bool, colDefaults map[string]string) string {

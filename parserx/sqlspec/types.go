@@ -1,7 +1,7 @@
 package sqlspec
 
 import (
-	"strings"
+	"github.com/zeromicro/go-zero/tools/goctl/util/stringx"
 
 	"gorm.io/gorm/schema"
 )
@@ -71,16 +71,10 @@ var dataTypeMap = map[string]func(string) string{
 	"boolean":    func(string) string { return "bool" },
 }
 
-// toCamelCase converts snake_case to CamelCase without treating common
-// initialisms specially. "user_id" → "UserId", "ip_address" → "IpAddress".
+// toCamelCase converts snake_case to CamelCase（复用 goctl 的 stringx，
+// 与本仓 cmd/api/gin 用的实现保持同一套，避免同仓两份驼峰转换）。
 func toCamelCase(s string) string {
-	parts := strings.Split(s, "_")
-	for i, p := range parts {
-		if len(p) > 0 {
-			parts[i] = strings.ToUpper(p[:1]) + p[1:]
-		}
-	}
-	return strings.Join(parts, "")
+	return stringx.From(s).ToCamel()
 }
 
 // mapMySQLType maps a MySQL type name to its Go type.

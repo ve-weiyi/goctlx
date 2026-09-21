@@ -60,6 +60,6 @@ func runMysqlDDL(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	fmt.Println("Model code generated successfully")
+	fmt.Println("✅ Model code generated")
 	return nil
 }

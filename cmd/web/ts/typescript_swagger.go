@@ -155,10 +155,7 @@ func generateApiFile(filePath string, group apispec.ApiGroup) error {
 }
 
 func generateApiMethod(f *os.File, route apispec.Route, group apispec.ApiGroup) {
-	if route.Summary != "" {
-		summary := strings.Trim(route.Summary, "\"")
-		fmt.Fprintf(f, "  /** %s */\n", summary)
-	}
+	writeMethodDoc(f, route)
 
 	isGetRequest := strings.ToUpper(route.Method) == "GET"
 	isFileUpload := isFileUploadRoute(route)
@@ -171,50 +168,74 @@ func generateApiMethod(f *os.File, route apispec.Route, group apispec.ApiGroup) 
 		paramName = "data"
 	}
 
-	// 函数参数
-	var params []string
-	if route.Request != "" {
-		// 路径参数与文件上传都会无条件读取形参：
-		// 前者缺了会拼出 /apis/undefined，后者 data.file 会直接报错，故不标可选
-		optional := "?"
-		if hasPathFields(route) || isFileUpload {
-			optional = ""
-		}
-		params = append(params, fmt.Sprintf("%s%s: %s", paramName, optional, route.Request))
-	}
-	reqParam := strings.Join(params, ", ")
-
-	response := "any"
-	if route.Response != "" {
-		response = ConvertGoTypeToTsType(route.Response)
-	}
-
-	fmt.Fprintf(f, "  %s(%s): Promise<ApiResponse<%s>> {\n", route.Handler, reqParam, response)
+	fmt.Fprintf(f, "  %s(%s): Promise<ApiResponse<%s>> {\n", route.Handler, methodParams(route, paramName, isFileUpload), methodResponse(route))
 
 	// 文件上传：构建 FormData
 	if isFileUpload {
-		fmt.Fprintln(f, "    const formData = new FormData();")
-		for _, param := range route.Params {
-			// 可选字段缺省时不应出现在表单里，否则 undefined 会被当成字符串提交
-			if param.Optional {
-				fmt.Fprintf(f, "    if (data.%s !== undefined) {\n", param.Name)
-				fmt.Fprintf(f, "      formData.append(\"%s\", data.%s);\n", param.Name, param.Name)
-				fmt.Fprintln(f, "    }")
-				continue
-			}
-			fmt.Fprintf(f, "    formData.append(\"%s\", data.%s);\n", param.Name, param.Name)
-		}
-		fmt.Fprintln(f)
+		writeFormData(f, route)
 	}
 
 	// Request 调用
 	fmt.Fprintln(f, "    return request({")
-	// 拼接 prefix 和 path
+	fmt.Fprintf(f, "      url: `%s`,\n", buildRouteURL(route, group, paramName))
+	fmt.Fprintf(f, "      method: \"%s\",\n", strings.ToUpper(route.Method))
+	writeRequestBody(f, route, paramName, isFileUpload, useBody)
+	fmt.Fprintln(f, "    });")
+	fmt.Fprintln(f, "  },")
+}
+
+// writeMethodDoc 输出 JSDoc 注释（契约里有 summary 时）。
+func writeMethodDoc(f *os.File, route apispec.Route) {
+	if route.Summary == "" {
+		return
+	}
+	summary := strings.Trim(route.Summary, "\"")
+	fmt.Fprintf(f, "  /** %s */\n", summary)
+}
+
+// methodParams 拼函数形参表：路径参数与文件上传都会无条件读取形参，
+// 前者缺了会拼出 /apis/undefined，后者 data.file 会直接报错，故不标可选。
+func methodParams(route apispec.Route, paramName string, isFileUpload bool) string {
+	if route.Request == "" {
+		return ""
+	}
+	optional := "?"
+	if hasPathFields(route) || isFileUpload {
+		optional = ""
+	}
+	return fmt.Sprintf("%s%s: %s", paramName, optional, route.Request)
+}
+
+// methodResponse 返回 Promise 包裹的响应类型。
+func methodResponse(route apispec.Route) string {
+	if route.Response == "" {
+		return "any"
+	}
+	return ConvertGoTypeToTsType(route.Response)
+}
+
+// writeFormData 为文件上传构建 FormData；可选字段缺省时不应出现在表单里，
+// 否则 undefined 会被当成字符串提交。
+func writeFormData(f *os.File, route apispec.Route) {
+	fmt.Fprintln(f, "    const formData = new FormData();")
+	for _, param := range route.Params {
+		if param.Optional {
+			fmt.Fprintf(f, "    if (data.%s !== undefined) {\n", param.Name)
+			fmt.Fprintf(f, "      formData.append(\"%s\", data.%s);\n", param.Name, param.Name)
+			fmt.Fprintln(f, "    }")
+			continue
+		}
+		fmt.Fprintf(f, "    formData.append(\"%s\", data.%s);\n", param.Name, param.Name)
+	}
+	fmt.Fprintln(f)
+}
+
+// buildRouteURL 拼接 prefix 与 path，并把路径参数 :id 换成模板插值 ${params.id}。
+func buildRouteURL(route apispec.Route, group apispec.ApiGroup, paramName string) string {
 	url := route.Path
 	if group.Prefix != "" && group.Prefix != "default" {
 		url = group.Prefix + route.Path
 	}
-	// 转换路径参数 :id → ${params.id}
 	for _, param := range route.Params {
 		if param.Location == apispec.LocationPath {
 			placeholder := ":" + param.Name
@@ -222,26 +243,28 @@ func generateApiMethod(f *os.File, route apispec.Route, group apispec.ApiGroup) 
 			url = strings.Replace(url, placeholder, replacement, 1)
 		}
 	}
-	fmt.Fprintf(f, "      url: `%s`,\n", url)
-	fmt.Fprintf(f, "      method: \"%s\",\n", strings.ToUpper(route.Method))
+	return url
+}
 
-	if route.Request != "" {
-		if isFileUpload {
-			fmt.Fprintln(f, "      data: formData,")
-			fmt.Fprintln(f, "      headers: {")
-			fmt.Fprintln(f, "        \"Content-Type\": \"multipart/form-data\",")
-			fmt.Fprintln(f, "      },")
-		} else if useBody {
-			fmt.Fprintln(f, "      data: data,")
-		} else {
-			// 契约里没有 json 字段就没有请求体：例如 DELETE /articles/:id 的参数是
-			// path:"id"，发 body 既不必要，也与「不用 DELETE 带 body」的约定相悖。
-			fmt.Fprintln(f, "      params: params,")
-		}
+// writeRequestBody 按契约选择 request 的传参方式。
+func writeRequestBody(f *os.File, route apispec.Route, paramName string, isFileUpload, useBody bool) {
+	if route.Request == "" {
+		return
 	}
-
-	fmt.Fprintln(f, "    });")
-	fmt.Fprintln(f, "  },")
+	if isFileUpload {
+		fmt.Fprintln(f, "      data: formData,")
+		fmt.Fprintln(f, "      headers: {")
+		fmt.Fprintln(f, "        \"Content-Type\": \"multipart/form-data\",")
+		fmt.Fprintln(f, "      },")
+		return
+	}
+	if useBody {
+		fmt.Fprintln(f, "      data: data,")
+		return
+	}
+	// 契约里没有 json 字段就没有请求体：例如 DELETE /articles/:id 的参数是
+	// path:"id"，发 body 既不必要，也与「不用 DELETE 带 body」的约定相悖。
+	fmt.Fprintf(f, "      params: %s,\n", paramName)
 }
 
 // hasBodyFields 判断请求类型是否声明了 json 字段（即真正的请求体）

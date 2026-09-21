@@ -17,12 +17,12 @@ func Write(path string, src []byte) error {
 
 	formatted, err := imports.Process(path, src, nil)
 	if err != nil {
-		return fmt.Errorf("整理 %s 失败: %w", path, err)
+		return fmt.Errorf("format %s: %w", path, err)
 	}
 	if err := os.WriteFile(path, formatted, 0640); err != nil {
 		return err
 	}
 
-	fmt.Println("生成文件成功:", path)
+	fmt.Println("✅ generated:", path)
 	return nil
 }

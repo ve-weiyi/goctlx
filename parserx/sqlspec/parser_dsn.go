@@ -164,6 +164,18 @@ func buildGormTag(col gorm.ColumnType, goType string, indexes []gorm.Index) stri
 		parts = append(parts, "not null")
 	}
 
+	parts = append(parts, indexParts(col, indexes)...)
+	parts = append(parts, defaultParts(col, goType, isPK)...)
+
+	if c, ok := col.Comment(); ok && c != "" {
+		parts = append(parts, fmt.Sprintf("comment:%s", c))
+	}
+
+	return strings.Join(parts, ";")
+}
+
+// indexParts 生成该列参与的所有索引片段，按索引名排序以保证输出稳定。
+func indexParts(col gorm.ColumnType, indexes []gorm.Index) []string {
 	sort.SliceStable(indexes, func(i, j int) bool {
 		if indexes[i] == nil || indexes[j] == nil {
 			return false
@@ -175,6 +187,7 @@ func buildGormTag(col gorm.ColumnType, goType string, indexes []gorm.Index) stri
 		return ni < nj
 	})
 
+	var parts []string
 	for _, idx := range indexes {
 		if idx == nil {
 			continue
@@ -195,7 +208,13 @@ func buildGormTag(col gorm.ColumnType, goType string, indexes []gorm.Index) stri
 			parts = append(parts, fmt.Sprintf("index:%s,priority:%d", idx.Name(), prio))
 		}
 	}
+	return parts
+}
 
+// defaultParts 生成显式默认值；数据库未显式声明默认值但列 NOT NULL 时补隐式默认值，
+// 避免 AutoMigrate 产生 ALTER TABLE 时丢失数据库的隐式默认行为。
+func defaultParts(col gorm.ColumnType, goType string, isPK bool) []string {
+	var parts []string
 	hasDefault := false
 
 	if dv, ok := col.DefaultValue(); ok {
@@ -218,7 +237,6 @@ func buildGormTag(col gorm.ColumnType, goType string, indexes []gorm.Index) stri
 		}
 	}
 
-	// 如果数据库没有显式默认值但列是 NOT NULL，补充隐式默认值，避免 AutoMigrate 产生 ALTER TABLE 时丢失数据库的隐式默认行为
 	if !hasDefault && !isPK {
 		if n, nok := col.Nullable(); nok && !n {
 			if col.Name() != "created_at" && col.Name() != "updated_at" {
@@ -236,10 +254,5 @@ func buildGormTag(col gorm.ColumnType, goType string, indexes []gorm.Index) stri
 			}
 		}
 	}
-
-	if c, ok := col.Comment(); ok && c != "" {
-		parts = append(parts, fmt.Sprintf("comment:%s", c))
-	}
-
-	return strings.Join(parts, ";")
+	return parts
 }
