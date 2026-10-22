@@ -3,56 +3,52 @@ package mysql
 import (
 	"fmt"
 	"sort"
-	"strings"
 
-	"github.com/ve-weiyi/goctlx/parserx/dbspec"
-	"github.com/ve-weiyi/pkg/utils/jsonconv"
+	"github.com/zeromicro/go-zero/tools/goctl/util/stringx"
+
+	"github.com/ve-weiyi/goctlx/parserx/sqlspec"
 )
 
-func ConvertTableToData(table *dbspec.Table) *ModelData {
+func ConvertTableMetaToData(tm *sqlspec.TableMeta) *ModelData {
 
 	var fs []*ModelField
-	for _, e := range table.Fields {
-		fs = append(fs, ConvertField(e))
+	for _, f := range tm.Fields {
+		fs = append(fs, &ModelField{
+			Name:    f.Name,
+			Type:    f.Type,
+			Column:  f.JsonTag,
+			Tag:     fmt.Sprintf(`gorm:"%s" json:"%s"`, f.GormTag, f.JsonTag),
+			Comment: f.Comment,
+		})
 	}
 
 	var ufs [][]*ModelField
-	// 先收集所有 key
-	keys := make([]string, 0, len(table.UniqueIndex))
-	for k := range table.UniqueIndex {
+	keys := make([]string, 0, len(tm.UniqueIndex))
+	for k := range tm.UniqueIndex {
 		keys = append(keys, k)
 	}
-
-	// 排序 key
 	sort.Strings(keys)
-
-	// 遍历排序后的 key，直接构建 ufs
 	for _, k := range keys {
-		es := table.UniqueIndex[k]
+		es := tm.UniqueIndex[k]
 		u := make([]*ModelField, 0, len(es))
 		for _, e := range es {
-			u = append(u, ConvertField(e))
+			u = append(u, &ModelField{
+				Name:    e.Name,
+				Type:    e.Type,
+				Column:  e.JsonTag,
+				Tag:     fmt.Sprintf(`gorm:"%s" json:"%s"`, e.GormTag, e.JsonTag),
+				Comment: e.Comment,
+			})
 		}
 		ufs = append(ufs, u)
 	}
 
-	data := &ModelData{
-		TableName:           table.Name,
-		UpperStartCamelName: jsonconv.Case2Camel(table.Name),
-		LowerStartCamelName: jsonconv.FirstLower(jsonconv.Case2Camel(table.Name)),
-		SnakeName:           jsonconv.Case2Snake(table.Name),
+	return &ModelData{
+		TableName:           tm.Name,
+		UpperStartCamelName: tm.StructName,
+		LowerStartCamelName: stringx.From(tm.StructName).Untitle(),
+		SnakeName:           tm.Name,
 		Fields:              fs,
 		UniqueFields:        ufs,
-	}
-
-	return data
-}
-
-func ConvertField(f *dbspec.Field) *ModelField {
-	return &ModelField{
-		Name:    jsonconv.Case2Camel(f.Name),
-		Type:    strings.TrimPrefix(f.DataType, "u"),
-		Tag:     fmt.Sprintf(`json:"%v" gorm:"column:%v"`, f.Name, f.Name),
-		Comment: f.Comment,
 	}
 }

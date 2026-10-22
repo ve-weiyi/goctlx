@@ -18,10 +18,10 @@ type (
 		Insert(ctx context.Context, in *{{.UpperStartCamelName}}) (rows int64, err error)
         // 删除
 		Delete(ctx context.Context, id int64) (rows int64, err error)
-        // 更新
+        // 整行更新（含零值，按主键）
         Update(ctx context.Context, in *{{.UpperStartCamelName}}) (rows int64, err error)
-        // 保存
-        Save(ctx context.Context, in *{{.UpperStartCamelName}}) (rows int64, err error)
+        // 插入或整行更新（按主键）
+        Upsert(ctx context.Context, in *{{.UpperStartCamelName}}) (rows int64, err error)
 		// 查询
 		FindById(ctx context.Context, id int64) (out *{{.UpperStartCamelName}}, err error)
 	    // add extra method in here
@@ -86,11 +86,11 @@ func (m *default{{.UpperStartCamelName}}Model) Delete(ctx context.Context, id in
 	return result.RowsAffected, err
 }
 
-// 更新记录（不更新零值）
+// 整行更新（含零值，按主键）
 func (m *default{{.UpperStartCamelName}}Model) Update(ctx context.Context, in *{{.UpperStartCamelName}}) (rows int64, err error) {
 	db := m.DbEngin.WithContext(ctx).Table(m.table)
 
-	result := db.Updates(&in)
+	result := db.Omit("id", "created_at", "updated_at").Select("*").Updates(&in)
 	if result.Error != nil {
 		return 0, result.Error
 	}
@@ -98,8 +98,8 @@ func (m *default{{.UpperStartCamelName}}Model) Update(ctx context.Context, in *{
 	return result.RowsAffected, err
 }
 
-// 保存记录（更新零值）
-func (m *default{{.UpperStartCamelName}}Model) Save(ctx context.Context, in *{{.UpperStartCamelName}}) (rows int64, err error) {
+// 插入或整行更新（按主键）
+func (m *default{{.UpperStartCamelName}}Model) Upsert(ctx context.Context, in *{{.UpperStartCamelName}}) (rows int64, err error) {
 	db := m.DbEngin.WithContext(ctx).Table(m.table)
 
 	result := db.Omit("created_at").Save(&in)

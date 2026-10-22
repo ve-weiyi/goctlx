@@ -25,7 +25,6 @@ yarn-error.log*
 
 *.iml
 *.log
-*.sum
 
 bin
 runtime
@@ -34,4 +33,5 @@ config.yaml
 admin-api.yaml
 test.*
 any_test.go
+Makefile
 Makefile

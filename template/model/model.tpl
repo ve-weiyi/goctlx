@@ -20,11 +20,12 @@ type (
         // 删除
 		Delete(ctx context.Context, id int64) (rows int64, err error)
 		DeleteBatch(ctx context.Context, conditions string, args ...interface{}) (rows int64, err error)
-        // 更新
+        // 整行更新（含零值，按主键）
         Update(ctx context.Context, in *{{.UpperStartCamelName}}) (rows int64, err error)
+        // 部分更新
         UpdateFields(ctx context.Context, fields map[string]interface{}, conditions string, args ...interface{}) (rows int64, err error)
-        // 保存或更新（更新零值）
-        Save(ctx context.Context, in *{{.UpperStartCamelName}}) (rows int64, err error)
+        // 插入或整行更新（按主键）
+        Upsert(ctx context.Context, in *{{.UpperStartCamelName}}) (rows int64, err error)
 		// 查询
 		FindById(ctx context.Context, id int64) (out *{{.UpperStartCamelName}}, err error)
 		FindOne(ctx context.Context, sorts string, conditions string, args ...interface{}) (out *{{.UpperStartCamelName}}, err error)
@@ -122,11 +123,11 @@ func (m *default{{.UpperStartCamelName}}Model) DeleteBatch(ctx context.Context, 
 	return result.RowsAffected, err
 }
 
-// 更新记录（不更新零值）
+// 整行更新（含零值，按主键）
 func (m *default{{.UpperStartCamelName}}Model) Update(ctx context.Context, in *{{.UpperStartCamelName}}) (rows int64, err error) {
 	db := m.DbEngin.WithContext(ctx).Table(m.table)
 
-	result := db.Updates(&in)
+	result := db.Omit("id", "created_at", "updated_at").Select("*").Updates(&in)
 	if result.Error != nil {
 		return 0, result.Error
 	}
@@ -134,7 +135,7 @@ func (m *default{{.UpperStartCamelName}}Model) Update(ctx context.Context, in *{
 	return result.RowsAffected, err
 }
 
-// 更新记录（批量操作）
+// 部分更新
 func (m *default{{.UpperStartCamelName}}Model) UpdateFields(ctx context.Context, feilds map[string]interface{}, conditions string, args ...interface{}) (rows int64, err error){
 	db := m.DbEngin.WithContext(ctx).Table(m.table)
 
@@ -146,8 +147,8 @@ func (m *default{{.UpperStartCamelName}}Model) UpdateFields(ctx context.Context,
 	return result.RowsAffected, err
 }
 
-// 保存或更新（更新零值）
-func (m *default{{.UpperStartCamelName}}Model) Save(ctx context.Context, in *{{.UpperStartCamelName}}) (rows int64, err error) {
+// 插入或整行更新（按主键）
+func (m *default{{.UpperStartCamelName}}Model) Upsert(ctx context.Context, in *{{.UpperStartCamelName}}) (rows int64, err error) {
 	db := m.DbEngin.WithContext(ctx).Table(m.table)
 
 	result := db.Omit("created_at").Save(&in)

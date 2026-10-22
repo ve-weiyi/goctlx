@@ -16,7 +16,7 @@ export const {{ .Name }}API = {
   /** {{ .Summery }} */
   {{ .Handler }}(
   {{- if .Request }}data?: {{ .Request }}{{ end -}}
-  ): Promise<IApiResponse<{{.Response}}>> {
+  ): Promise<ApiResponse<{{.Response}}>> {
     {{- if .PathFields }}
     let url = "{{$prefix}}{{.Path}}";
     {{- range .PathFields }}

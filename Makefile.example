@@ -1,59 +1,107 @@
-.PHONY: help deps test-model test-web-ts-swagger gen-model-sparkinai gen-web-ts-app gen-web-ts-admin clean
+.PHONY: help deps gen-model-dsn gen-model-ddl gen-web-ts-app gen-web-ts-admin gen-web-ts-swagger gen-api-gin-app gen-api-gin-admin gen-api-gin-app-swagger gen-api-gin-admin-swagger clean
+
+# ======== 可配置变量（测试环境） ========
+
+# Model 生成
+DSN         := root:your-password@(localhost:3306)/veweiyi-blog?charset=utf8mb4&parseTime=True&loc=Local
+SQL_FILE    := ./testdata/test.sql
+MODEL_TPL   := ./template/model/model.tpl
+MODEL_OUT   := ./runtime/model
+
+# TypeScript 生成
+APP_API_FILE     := ./testdata/test.api
+ADMIN_API_FILE   := ./testdata/test.api
+APP_SWAGGER_FILE := ./testdata/test.json
+TS_APP_OUT       := ./runtime/web/ts
+TS_ADMIN_OUT     := ./runtime/web/ts
+
+# Gin API 生成
+GIN_TPL         := ./template/api/gin
+SVCTX_PACKAGE   := github.com/example/svctx
+GIN_APP_OUT     := ./runtime/gin/app
+GIN_ADMIN_OUT   := ./runtime/gin/admin
+
+# ======== 命令 ========
 
 help:
-	@echo "可用命令："
-	@echo "  deps                  - 安装依赖"
-	@echo "  test-model            - 测试 model 生成"
-	@echo "  test-web-ts-swagger   - 测试 TypeScript swagger 生成"
-	@echo "  gen-model-sparkinai   - 为 sparkinai 项目生成数据库模型"
-	@echo "  gen-web-ts-app        - 为 sparkinai-app 生成 TypeScript API"
-	@echo "  gen-web-ts-admin      - 为 sparkinai-admin 生成 TypeScript API"
-	@echo "  clean                 - 清理生成的代码"
+	@echo "可用命令（请修改上方变量后使用）："
+	@echo "  deps                         - 安装依赖"
+	@echo "  gen-model-dsn                - 从数据库生成 GORM 模型"
+	@echo "  gen-model-ddl                - 从 SQL 文件生成 GORM 模型"
+	@echo "  gen-web-ts-app               - 生成 TypeScript API（app）"
+	@echo "  gen-web-ts-admin             - 生成 TypeScript API（admin）"
+	@echo "  gen-web-ts-swagger           - 从 swagger.json 生成 TypeScript"
+	@echo "  gen-api-gin-app              - 从 .api 文件生成 Gin API（app）"
+	@echo "  gen-api-gin-admin            - 从 .api 文件生成 Gin API（admin）"
+	@echo "  gen-api-gin-app-swagger      - 从 swagger.json 生成 Gin API（app）"
+	@echo "  gen-api-gin-admin-swagger    - 从 swagger.json 生成 Gin API（admin）"
+	@echo "  clean                        - 清理生成的代码"
 
-# 安装依赖
 deps:
 	go mod tidy
 
-# 测试 model 生成
-test-model:
+# ======== Model 生成 ========
+
+gen-model-dsn:
+	go run main.go model mysql dsn \
+		-u "$(DSN)" \
+		-t $(MODEL_TPL) \
+		-o $(MODEL_OUT) \
+		-n "%s_model.go"
+
+gen-model-ddl:
 	go run main.go model mysql ddl \
-		-s ./testdata/t_user.sql \
-		-t ./template/model/model.tpl \
-		-o ./runtime/model \
+		-s $(SQL_FILE) \
+		-t $(MODEL_TPL) \
+		-o $(MODEL_OUT) \
 		-n '%v_model.go'
 
-# 测试 TypeScript swagger 生成
-test-web-ts-swagger:
-	go run main.go web ts swagger \
-		-f ./testdata/test.json \
-		-o ./runtime/web/ts
+# ======== TypeScript 生成 ========
 
-# 测试 TypeScript api 生成
-test-web-ts-api:
-	go run main.go web ts api \
-		-f /Users/weiyi/Github/veweiyi/sparkinai/sparkinai-cloud/service/admin/api/proto/admin.api \
-		-o ./runtime/web/ts
-
-# 为 sparkinai 项目生成数据库模型
-gen-model-sparkinai:
-	go run main.go model mysql ddl \
-		-s /Users/weiyi/Github/veweiyi/sparkinai/sparkinai-cloud/sparkinai.sql \
-		-t ./template/model/model.tpl \
-		-o /Users/weiyi/Github/veweiyi/sparkinai/sparkinai-cloud/service/app/model \
-		-n '%v_model.go'
-
-# 为 sparkinai-app 生成 TypeScript API
 gen-web-ts-app:
 	go run main.go web ts api \
-		-f /Users/weiyi/Github/veweiyi/sparkinai/sparkinai-cloud/service/app/api/proto/app.api \
-		-o /Users/weiyi/Github/veweiyi/sparkinai/sparkinai-app/src/api
+		-f $(APP_API_FILE) \
+		-o $(TS_APP_OUT)
 
-# 为 sparkinai-admin 生成 TypeScript API
 gen-web-ts-admin:
 	go run main.go web ts api \
-		-f /Users/weiyi/Github/veweiyi/sparkinai/sparkinai-cloud/service/admin/api/proto/admin.api \
-		-o /Users/weiyi/Github/veweiyi/sparkinai/sparkinai-admin/src/api
+		-f $(ADMIN_API_FILE) \
+		-o $(TS_ADMIN_OUT)
 
-# 清理生成的代码
+gen-web-ts-swagger:
+	go run main.go web ts swagger \
+		-f $(APP_SWAGGER_FILE) \
+		-o $(TS_APP_OUT)
+
+# ======== Gin API 生成 ========
+
+gen-api-gin-app:
+	go run main.go api gin api \
+		-f $(APP_API_FILE) \
+		-t $(GIN_TPL) \
+		-o $(GIN_APP_OUT) \
+		-c $(SVCTX_PACKAGE)
+
+gen-api-gin-admin:
+	go run main.go api gin api \
+		-f $(ADMIN_API_FILE) \
+		-t $(GIN_TPL) \
+		-o $(GIN_ADMIN_OUT) \
+		-c $(SVCTX_PACKAGE)
+
+gen-api-gin-app-swagger:
+	go run main.go api gin swagger \
+		-f $(APP_SWAGGER_FILE) \
+		-t $(GIN_TPL) \
+		-o $(GIN_APP_OUT) \
+		-c $(SVCTX_PACKAGE)
+
+gen-api-gin-admin-swagger:
+	go run main.go api gin swagger \
+		-f $(APP_SWAGGER_FILE) \
+		-t $(GIN_TPL) \
+		-o $(GIN_ADMIN_OUT) \
+		-c $(SVCTX_PACKAGE)
+
 clean:
 	rm -rf ./runtime

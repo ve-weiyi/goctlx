@@ -78,24 +78,28 @@ func ConvertPathToPascalCase(path string) string {
 	return result.String()
 }
 
-// ConvertPathToSnakeCase 将路径转换为 snake_case 文件名
-// 例如: "Payment/package_" -> "payment_package"
-//
-//	"User/Profile" -> "user_profile"
-func ConvertPathToSnakeCase(path string) string {
-	// 将斜杠替换为下划线
-	path = strings.ReplaceAll(path, "/", "_")
-
-	// 转换为小写
-	path = strings.ToLower(path)
-
-	// 移除连续的下划线
-	for strings.Contains(path, "__") {
-		path = strings.ReplaceAll(path, "__", "_")
+// LastSegmentPascalCase 取路径的最后一段并转换为 PascalCase
+// 例如: "blog/article" -> "Article"
+func LastSegmentPascalCase(path string) string {
+	// 取最后一个 / 之后的部分
+	if idx := strings.LastIndex(path, "/"); idx != -1 {
+		path = path[idx+1:]
 	}
+	return ConvertPathToPascalCase(path)
+}
 
-	// 移除首尾的下划线
-	path = strings.Trim(path, "_")
-
-	return path
+// ConvertPathToKebabCase 将路径转换为 kebab-case 文件名，保留目录分隔符
+// 例如: "account/user" -> "account/user", "notification/notify_template" -> "notification/notify-template"
+func ConvertPathToKebabCase(path string) string {
+	// 分割路径，保留目录结构
+	parts := strings.Split(path, "/")
+	for i, part := range parts {
+		part = strings.ReplaceAll(part, "_", "-")
+		part = strings.ToLower(part)
+		for strings.Contains(part, "--") {
+			part = strings.ReplaceAll(part, "--", "-")
+		}
+		parts[i] = strings.Trim(part, "-")
+	}
+	return strings.Join(parts, "/")
 }
