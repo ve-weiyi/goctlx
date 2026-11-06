@@ -1,0 +1,39 @@
+package model
+
+import (
+	"time"
+
+	"gorm.io/gorm"
+)
+
+var _ TDemoLogModel = (*defaultTDemoLogModel)(nil)
+
+type (
+	// 接口定义
+	TDemoLogModel interface {
+		Table[TDemoLog]
+		// 在事务中操作
+		WithTx(tx *gorm.DB) (out TDemoLogModel)
+	}
+
+	// 表字段定义
+	TDemoLog struct {
+		Id        int64     `gorm:"column:id;type:bigint;primaryKey;autoIncrement:true;comment:id" json:"id"`                                // id
+		UserId    int64     `gorm:"column:user_id;type:bigint;not null;default:0;comment:用户id" json:"user_id"`                               // 用户id
+		CreatedAt time.Time `gorm:"column:created_at;type:datetime(3);not null;default:CURRENT_TIMESTAMP(3);comment:创建时间" json:"created_at"` // 创建时间
+	}
+
+	// 接口实现
+	defaultTDemoLogModel struct {
+		baseModel[TDemoLog]
+	}
+)
+
+func NewTDemoLogModel(db *gorm.DB) TDemoLogModel {
+	return &defaultTDemoLogModel{newBaseModel[TDemoLog](db, "`t_demo_log`")}
+}
+
+// 在事务中操作
+func (m *defaultTDemoLogModel) WithTx(tx *gorm.DB) (out TDemoLogModel) {
+	return &defaultTDemoLogModel{newBaseModel[TDemoLog](tx, m.table)}
+}

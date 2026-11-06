@@ -48,7 +48,7 @@ func generateModel(models []*ModelData, tplPath string, outPath string, nameAs s
 		"funcFieldsKeyVar": func(fs []*ModelField) string {
 			var name string
 			for _, ff := range fs {
-				v := ff.Column
+				v := lowerFirst(ff.Name)
 				tp := ff.Type
 				if name != "" {
 					name += ", "
@@ -71,7 +71,7 @@ func generateModel(models []*ModelData, tplPath string, outPath string, nameAs s
 		"funcFieldsKeyCondVar": func(fs []*ModelField) string {
 			var name string
 			for _, ff := range fs {
-				v := ff.Column
+				v := lowerFirst(ff.Name)
 				if name != "" {
 					name += ", "
 				}
@@ -94,6 +94,14 @@ func generateModel(models []*ModelData, tplPath string, outPath string, nameAs s
 	}
 
 	return nil
+}
+
+// lowerFirst 把导出字段名转成小驼峰，用作函数参数名。
+func lowerFirst(s string) string {
+	if s == "" {
+		return s
+	}
+	return strings.ToLower(s[:1]) + s[1:]
 }
 
 // extractBaseType 提取基础类型原型

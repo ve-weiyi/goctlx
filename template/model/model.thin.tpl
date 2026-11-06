@@ -12,19 +12,21 @@ type (
 	// 接口定义
 	{{.UpperStartCamelName}}Model interface {
 		TableName() string
-        // 在事务中操作
-        WithTransaction(tx *gorm.DB) (out {{.UpperStartCamelName}}Model)
+		// 在事务中操作
+		WithTx(tx *gorm.DB) (out {{.UpperStartCamelName}}Model)
 		// 插入
 		Insert(ctx context.Context, in *{{.UpperStartCamelName}}) (rows int64, err error)
-        // 删除
+		// 删除
 		Delete(ctx context.Context, id int64) (rows int64, err error)
-        // 整行更新（含零值，按主键）
-        Update(ctx context.Context, in *{{.UpperStartCamelName}}) (rows int64, err error)
-        // 插入或整行更新（按主键）
-        Upsert(ctx context.Context, in *{{.UpperStartCamelName}}) (rows int64, err error)
+		// 整行更新（含零值，按主键）
+		Update(ctx context.Context, in *{{.UpperStartCamelName}}) (rows int64, err error)
+		// 插入或整行更新（按主键）
+		Upsert(ctx context.Context, in *{{.UpperStartCamelName}}) (rows int64, err error)
 		// 查询
 		FindById(ctx context.Context, id int64) (out *{{.UpperStartCamelName}}, err error)
-	    // add extra method in here
+        {{- if .UniqueFields}}
+		// add extra method in here
+        {{- end}}
         {{- range $key, $value := .UniqueFields}}
             FindOneBy{{ funcFieldsKey $value}}(ctx context.Context, {{funcFieldsKeyVar $value}}) (out *{{$.UpperStartCamelName}},err error)
         {{- end}}
@@ -39,93 +41,25 @@ type (
 
     // 接口实现
     default{{.UpperStartCamelName}}Model struct {
-        DbEngin    *gorm.DB
-        table       string
+        baseModel[{{.UpperStartCamelName}}]
     }
 )
 
 func New{{.UpperStartCamelName}}Model(db *gorm.DB) {{.UpperStartCamelName}}Model {
-	return &default{{.UpperStartCamelName}}Model{
-		DbEngin:    db,
-		table:      "`{{.SnakeName}}`",
-	}
-}
-
-func (m *default{{.UpperStartCamelName}}Model) TableName() string {
-	return m.table
+	return &default{{.UpperStartCamelName}}Model{newBaseModel[{{.UpperStartCamelName}}](db, "`{{.SnakeName}}`")}
 }
 
 // 在事务中操作
-func (m *default{{.UpperStartCamelName}}Model) WithTransaction(tx *gorm.DB) (out {{.UpperStartCamelName}}Model) {
-	return New{{.UpperStartCamelName}}Model(tx)
+func (m *default{{.UpperStartCamelName}}Model) WithTx(tx *gorm.DB) (out {{.UpperStartCamelName}}Model) {
+	return &default{{.UpperStartCamelName}}Model{newBaseModel[{{.UpperStartCamelName}}](tx, m.table)}
 }
 
-// 插入记录 (返回的是受影响行数，如需获取自增id，请通过data参数获取)
-func (m *default{{.UpperStartCamelName}}Model) Insert(ctx context.Context, in *{{.UpperStartCamelName}}) (rows int64, err error) {
-	db := m.DbEngin.WithContext(ctx).Table(m.table)
-
-	result := db.Create(&in)
-	if result.Error != nil {
-		return 0, result.Error
-	}
-
-	return result.RowsAffected, err
-}
-
-// 删除记录
-func (m *default{{.UpperStartCamelName}}Model) Delete(ctx context.Context, id int64) (rows int64, err error) {
-	db := m.DbEngin.WithContext(ctx).Table(m.table)
-
-	db = db.Where("id = ?", id)
-
-	result := db.Delete(&{{.UpperStartCamelName}}{})
-	if result.Error != nil {
-		return 0, result.Error
-	}
-
-	return result.RowsAffected, err
-}
-
-// 整行更新（含零值，按主键）
-func (m *default{{.UpperStartCamelName}}Model) Update(ctx context.Context, in *{{.UpperStartCamelName}}) (rows int64, err error) {
-	db := m.DbEngin.WithContext(ctx).Table(m.table)
-
-	result := db.Omit("id", "created_at", "updated_at").Select("*").Updates(&in)
-	if result.Error != nil {
-		return 0, result.Error
-	}
-
-	return result.RowsAffected, err
-}
-
-// 插入或整行更新（按主键）
-func (m *default{{.UpperStartCamelName}}Model) Upsert(ctx context.Context, in *{{.UpperStartCamelName}}) (rows int64, err error) {
-	db := m.DbEngin.WithContext(ctx).Table(m.table)
-
-	result := db.Omit("created_at").Save(&in)
-	if result.Error != nil {
-		return 0, result.Error
-	}
-
-	return result.RowsAffected, err
-}
-
-// 查询记录
-func (m *default{{.UpperStartCamelName}}Model) FindById(ctx context.Context, id int64) (out *{{.UpperStartCamelName}}, err error) {
-	db := m.DbEngin.WithContext(ctx).Table(m.table)
-
-	err = db.Where("`id` = ?", id).First(&out).Error
-	if err != nil {
-		return nil, err
-	}
-
-	return out, err
-}
-
+{{- if .UniqueFields}}
 // add extra method in here
+{{- end}}
 {{- range $key, $value := .UniqueFields}}
 func (m *default{{$.UpperStartCamelName}}Model) FindOneBy{{ funcFieldsKey $value}}(ctx context.Context, {{funcFieldsKeyVar $value}}) (out *{{$.UpperStartCamelName}},err error) {
-	db := m.DbEngin.WithContext(ctx).Table(m.table)
+	db := m.scope(ctx)
 
 	err = db.Where("{{funcFieldsKeyCond $value}}", {{funcFieldsKeyCondVar $value}}).First(&out).Error
 	if err != nil {
@@ -134,4 +68,4 @@ func (m *default{{$.UpperStartCamelName}}Model) FindOneBy{{ funcFieldsKey $value
 
 	return out, nil
 }
-{{- end}}
+{{ end }}

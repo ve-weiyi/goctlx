@@ -1,0 +1,68 @@
+package model
+
+import (
+	"context"
+	"time"
+
+	"gorm.io/gorm"
+)
+
+var _ TDemoModel = (*defaultTDemoModel)(nil)
+
+type (
+	// 接口定义
+	TDemoModel interface {
+		TableName() string
+		// 在事务中操作
+		WithTx(tx *gorm.DB) (out TDemoModel)
+		// 插入
+		Insert(ctx context.Context, in *TDemo) (rows int64, err error)
+		// 删除
+		Delete(ctx context.Context, id int64) (rows int64, err error)
+		// 整行更新（含零值，按主键）
+		Update(ctx context.Context, in *TDemo) (rows int64, err error)
+		// 插入或整行更新（按主键）
+		Upsert(ctx context.Context, in *TDemo) (rows int64, err error)
+		// 查询
+		FindById(ctx context.Context, id int64) (out *TDemo, err error)
+		// add extra method in here
+		FindOneByNameUserId(ctx context.Context, name string, userId string) (out *TDemo, err error)
+	}
+
+	// 表字段定义
+	TDemo struct {
+		Id        int64     `gorm:"column:id;type:bigint;primaryKey;autoIncrement:true;comment:id" json:"id"`                                                          // id
+		UserId    string    `gorm:"column:user_id;type:varchar(64);not null;uniqueIndex:uk_name_uid,priority:2;default:'';comment:用户id" json:"user_id"`                // 用户id
+		Name      string    `gorm:"column:name;type:varchar(32);not null;uniqueIndex:uk_name_uid,priority:1;default:'';comment:名称" json:"name"`                        // 名称
+		Status    int64     `gorm:"column:status;type:tinyint;not null;default:0;comment:状态 0正常 1禁用" json:"status"`                                                    // 状态 0正常 1禁用
+		Remark    *string   `gorm:"column:remark;type:varchar(128);comment:备注" json:"remark"`                                                                          // 备注
+		CreatedAt time.Time `gorm:"column:created_at;type:datetime;not null;index:idx_created_at,priority:1;default:CURRENT_TIMESTAMP;comment:创建时间" json:"created_at"` // 创建时间
+		UpdatedAt time.Time `gorm:"column:updated_at;type:datetime;not null;default:CURRENT_TIMESTAMP;comment:更新时间" json:"updated_at"`                                 // 更新时间
+	}
+
+	// 接口实现
+	defaultTDemoModel struct {
+		baseModel[TDemo]
+	}
+)
+
+func NewTDemoModel(db *gorm.DB) TDemoModel {
+	return &defaultTDemoModel{newBaseModel[TDemo](db, "`t_demo`")}
+}
+
+// 在事务中操作
+func (m *defaultTDemoModel) WithTx(tx *gorm.DB) (out TDemoModel) {
+	return &defaultTDemoModel{newBaseModel[TDemo](tx, m.table)}
+}
+
+// add extra method in here
+func (m *defaultTDemoModel) FindOneByNameUserId(ctx context.Context, name string, userId string) (out *TDemo, err error) {
+	db := m.scope(ctx)
+
+	err = db.Where("`name` = ? and `user_id` = ?", name, userId).First(&out).Error
+	if err != nil {
+		return nil, err
+	}
+
+	return out, nil
+}

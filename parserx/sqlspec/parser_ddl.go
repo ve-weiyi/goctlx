@@ -76,6 +76,25 @@ var ddlTypeToMySQL = map[int]string{
 
 var colTypeRe = regexp.MustCompile("`(\\w+)`\\s+(\\w+(?:\\([^)]*\\))?(?:\\s+unsigned)?(?:\\s+zerofill)?)")
 
+// createTableRe 定位每个 CREATE TABLE 的起始位置，用于把整份 DDL 切成单表片段。
+var createTableRe = regexp.MustCompile("(?i)CREATE\\s+TABLE\\s+(?:IF\\s+NOT\\s+EXISTS\\s+)?`(\\w+)`")
+
+// splitByTable 把整份 DDL 切成 表名 → 单表片段。
+// 列信息必须按表作用域提取：不同表存在同名列（如 created_at 的 datetime 与 datetime(3)），
+// 共用一份「列名→值」映射会互相覆盖。
+func splitByTable(sql string) map[string]string {
+	locs := createTableRe.FindAllStringSubmatchIndex(sql, -1)
+	out := make(map[string]string, len(locs))
+	for i, loc := range locs {
+		end := len(sql)
+		if i+1 < len(locs) {
+			end = locs[i+1][0]
+		}
+		out[sql[loc[2]:loc[3]]] = sql[loc[0]:end]
+	}
+	return out
+}
+
 // extractColumnTypes scans SQL DDL text and returns a map of column name → full MySQL type string.
 func extractColumnTypes(sql string) map[string]string {
 	result := make(map[string]string)
@@ -85,8 +104,66 @@ func extractColumnTypes(sql string) map[string]string {
 	return result
 }
 
+// keyLineRe 匹配表级索引声明行，捕获索引类型前缀、索引名与列清单。
+var keyLineRe = regexp.MustCompile("(?mi)^\\s*(PRIMARY\\s+|UNIQUE\\s+|FULLTEXT\\s+|SPATIAL\\s+)?KEY\\s+`(\\w+)`\\s*\\(([^)]*)\\)")
+
+var backtickNameRe = regexp.MustCompile("`(\\w+)`")
+
+// indexDef 是 DDL 里的一条索引声明，columns 保持声明顺序。
+type indexDef struct {
+	name    string
+	columns []string
+}
+
+// extractIndexDefs 从单表 DDL 片段里取出唯一索引与普通索引，均按声明顺序返回。
+// 索引名与列顺序直接取自 DDL 文本：ddlparser 不保证复合索引的列序，且丢失真实索引名。
+func extractIndexDefs(sql string) (unique, plain []indexDef) {
+	for _, m := range keyLineRe.FindAllStringSubmatch(sql, -1) {
+		kind := strings.ToUpper(strings.TrimSpace(m[1]))
+		if kind == "PRIMARY" {
+			continue
+		}
+		names := backtickNameRe.FindAllStringSubmatch(m[3], -1)
+		cols := make([]string, 0, len(names))
+		for _, n := range names {
+			cols = append(cols, n[1])
+		}
+		if len(cols) == 0 {
+			continue
+		}
+		d := indexDef{name: m[2], columns: cols}
+		if kind == "UNIQUE" {
+			unique = append(unique, d)
+		} else {
+			plain = append(plain, d)
+		}
+	}
+	return unique, plain
+}
+
+// collectPlainIndexes 把普通索引摊平成「列 → 索引名/序号」，主键列不参与。
+// 同一列命中多条索引时取声明顺序的第一条。
+func collectPlainIndexes(defs []indexDef, tablePK map[string]bool) (colIndex map[string]string, colIndexPrio map[string]int) {
+	colIndex = make(map[string]string)
+	colIndexPrio = make(map[string]int)
+	for _, d := range defs {
+		for i, col := range d.columns {
+			if tablePK[col] {
+				continue
+			}
+			if _, exists := colIndex[col]; exists {
+				continue
+			}
+			colIndex[col] = d.name
+			colIndexPrio[col] = i + 1
+		}
+	}
+	return colIndex, colIndexPrio
+}
+
 // colDefaultRe extracts DEFAULT value from SQL column definitions.
-var colDefaultRe = regexp.MustCompile("`(\\w+)`[^,]*?DEFAULT\\s+('[^']*'?|[^\\s,)]+)")
+// 限定在同一行内匹配，避免跨行吞掉表选项里的 DEFAULT CHARSET。
+var colDefaultRe = regexp.MustCompile("`(\\w+)`[^,\\n]*?DEFAULT\\s+('[^']*'|\\w+(?:\\([^)]*\\))?)")
 
 func extractColumnDefaults(sql string) map[string]string {
 	result := make(map[string]string)
@@ -113,8 +190,7 @@ func ParseTablesFromSQL(filename string) ([]*TableMeta, error) {
 		return nil, fmt.Errorf("read file %s: %w", absPath, err)
 	}
 	sqlText := string(sqlBytes)
-	colTypes := extractColumnTypes(sqlText)
-	colDefaults := extractColumnDefaults(sqlText)
+	chunks := splitByTable(sqlText)
 
 	p := ddlparser.NewParser()
 	tables, err := p.From(absPath)
@@ -127,7 +203,9 @@ func ParseTablesFromSQL(filename string) ([]*TableMeta, error) {
 
 	var result []*TableMeta
 	for _, t := range tables {
-		tm, err := buildTableMetaFromDDL(t, colTypes, colDefaults, ns)
+		chunk := chunks[t.Name]
+		uniqueNames, plainNames := extractIndexDefs(chunk)
+		tm, err := buildTableMetaFromDDL(t, extractColumnTypes(chunk), extractColumnDefaults(chunk), uniqueNames, plainNames, ns)
 		if err != nil {
 			return nil, fmt.Errorf("%s: table %s: %w", prefix, t.Name, err)
 		}
@@ -138,8 +216,9 @@ func ParseTablesFromSQL(filename string) ([]*TableMeta, error) {
 	return result, nil
 }
 
-func buildTableMetaFromDDL(t *ddlparser.Table, colTypes map[string]string, colDefaults map[string]string, ns namingStrategy) (*TableMeta, error) {
-	tablePK, multiColUnique, multiColPrio := collectTableConstraints(t)
+func buildTableMetaFromDDL(t *ddlparser.Table, colTypes map[string]string, colDefaults map[string]string, unique, plain []indexDef, ns namingStrategy) (*TableMeta, error) {
+	tablePK, colUnique := collectTableConstraints(t, unique)
+	colIndex, colIndexPrio := collectPlainIndexes(plain, tablePK)
 
 	tm := &TableMeta{
 		Name:        t.Name,
@@ -152,38 +231,41 @@ func buildTableMetaFromDDL(t *ddlparser.Table, colTypes map[string]string, colDe
 			continue
 		}
 
-		fm, err := buildFieldFromDDLColumn(col, colTypes, colDefaults, multiColUnique, multiColPrio, tablePK, ns)
+		fm, err := buildFieldFromDDLColumn(col, colTypes, colDefaults, colUnique, colIndex, colIndexPrio, tablePK, ns)
 		if err != nil {
 			return nil, err
 		}
 		tm.Fields = append(tm.Fields, fm)
 
-		registerUniqueIndex(tm, fm, col, multiColUnique, tablePK)
+		registerUniqueIndex(tm, fm, col, colUnique, tablePK)
 	}
 
-	sortUniqueIndexFields(tm, multiColPrio)
+	sortUniqueIndexFields(tm, colUnique)
 
 	return tm, nil
 }
 
-// collectTableConstraints 汇总表级约束：主键列集合，以及多列唯一索引的「列 → 索引名/序号」。
-func collectTableConstraints(t *ddlparser.Table) (tablePK map[string]bool, multiColUnique map[string]string, multiColPrio map[string]int) {
-	tablePK = make(map[string]bool)          // columns that are table-level primary key
-	multiColUnique = make(map[string]string) // columnName → indexName
-	multiColPrio = make(map[string]int)      // columnName → priority
+// indexRef 是列在某个唯一索引里的位置。
+type indexRef struct {
+	name string
+	prio int
+}
+
+// collectTableConstraints 汇总表级约束：主键列集合，以及「列 → 所属唯一索引」。
+// 一个列可能同时属于多个唯一索引（如 (a,b) 与 (b,c) 中的 b），因此按列存切片。
+func collectTableConstraints(t *ddlparser.Table, unique []indexDef) (tablePK map[string]bool, colUnique map[string][]indexRef) {
+	tablePK = make(map[string]bool)         // columns that are table-level primary key
+	colUnique = make(map[string][]indexRef) // columnName → 所属唯一索引
 
 	for _, c := range t.Constraints {
-		if len(c.ColumnPrimaryKey) > 0 {
-			for _, col := range c.ColumnPrimaryKey {
-				tablePK[col] = true
-			}
+		for _, col := range c.ColumnPrimaryKey {
+			tablePK[col] = true
 		}
-		if len(c.ColumnUniqueKey) > 0 {
-			idxName := "uk_" + strings.Join(c.ColumnUniqueKey, "_")
-			for i, col := range c.ColumnUniqueKey {
-				multiColUnique[col] = idxName
-				multiColPrio[col] = i + 1
-			}
+	}
+
+	for _, d := range unique {
+		for i, col := range d.columns {
+			colUnique[col] = append(colUnique[col], indexRef{name: d.name, prio: i + 1})
 		}
 	}
 	return
@@ -191,7 +273,8 @@ func collectTableConstraints(t *ddlparser.Table) (tablePK map[string]bool, multi
 
 // buildFieldFromDDLColumn 把一列转成 FieldMeta（Go 类型推导 + gorm tag）。
 func buildFieldFromDDLColumn(col *ddlparser.Column, colTypes map[string]string, colDefaults map[string]string,
-	multiColUnique map[string]string, multiColPrio map[string]int, tablePK map[string]bool, ns namingStrategy) (*FieldMeta, error) {
+	colUnique map[string][]indexRef, colIndex map[string]string, colIndexPrio map[string]int,
+	tablePK map[string]bool, ns namingStrategy) (*FieldMeta, error) {
 	baseType, ok := ddlTypeToMySQL[col.DataType.Type()]
 	if !ok {
 		return nil, fmt.Errorf("unsupported data type enum: %v", col.DataType.Type())
@@ -205,10 +288,6 @@ func buildFieldFromDDLColumn(col *ddlparser.Column, colTypes map[string]string, 
 
 	goType := mapMySQLType(baseType)
 
-	if col.Name == "deleted_at" && goType == "time.Time" {
-		goType = "gorm.DeletedAt"
-	}
-
 	isPK := (col.Constraint != nil && col.Constraint.Primary) || tablePK[col.Name]
 	isNullable := !isPK && (col.Constraint == nil || !col.Constraint.NotNull)
 	goType = wrapPtrType(goType, isNullable)
@@ -216,7 +295,7 @@ func buildFieldFromDDLColumn(col *ddlparser.Column, colTypes map[string]string, 
 	fm := &FieldMeta{
 		Name:    ns.SchemaName(col.Name),
 		Type:    goType,
-		GormTag: buildDDLGormTag(col, fullType, multiColUnique, multiColPrio, tablePK, colDefaults),
+		GormTag: buildDDLGormTag(col, fullType, colUnique, colIndex, colIndexPrio, tablePK, colDefaults),
 		JsonTag: col.Name,
 	}
 
@@ -226,34 +305,59 @@ func buildFieldFromDDLColumn(col *ddlparser.Column, colTypes map[string]string, 
 	return fm, nil
 }
 
-// registerUniqueIndex 把该列登记进表级唯一索引（主键列不参与）。
-func registerUniqueIndex(tm *TableMeta, fm *FieldMeta, col *ddlparser.Column, multiColUnique map[string]string, tablePK map[string]bool) {
-	if col.Constraint == nil || col.Constraint.Primary || tablePK[col.Name] {
+// registerUniqueIndex 把该列登记进它所属的每个唯一索引（主键列不参与）。
+func registerUniqueIndex(tm *TableMeta, fm *FieldMeta, col *ddlparser.Column, colUnique map[string][]indexRef, tablePK map[string]bool) {
+	if tablePK[col.Name] {
 		return
 	}
-	if idxName, ok := multiColUnique[col.Name]; ok {
-		fmCopy := *fm
-		tm.UniqueIndex[idxName] = append(tm.UniqueIndex[idxName], &fmCopy)
+	if col.Constraint != nil && col.Constraint.Primary {
+		return
 	}
-	if col.Constraint.Unique {
+
+	for _, ref := range colUnique[col.Name] {
+		fmCopy := *fm
+		tm.UniqueIndex[ref.name] = append(tm.UniqueIndex[ref.name], &fmCopy)
+	}
+
+	if col.Constraint != nil && col.Constraint.Unique {
 		idxName := "uk_" + col.Name
-		if _, exists := multiColUnique[col.Name]; !exists || idxName != multiColUnique[col.Name] {
+		if !hasIndexRef(colUnique[col.Name], idxName) {
 			fmCopy := *fm
 			tm.UniqueIndex[idxName] = append(tm.UniqueIndex[idxName], &fmCopy)
 		}
 	}
 }
 
-// sortUniqueIndexFields 让每个唯一索引内的字段按列序号稳定排序。
-func sortUniqueIndexFields(tm *TableMeta, multiColPrio map[string]int) {
-	for _, fields := range tm.UniqueIndex {
+// sortUniqueIndexFields 让每个唯一索引内的字段按索引声明顺序排列。
+// 列是按表字段顺序登记的，跨列索引必须按索引内的位置重排，方法名才与声明一致。
+func sortUniqueIndexFields(tm *TableMeta, colUnique map[string][]indexRef) {
+	for idxName, fields := range tm.UniqueIndex {
 		sort.SliceStable(fields, func(i, j int) bool {
-			return multiColPrio[fields[i].JsonTag] < multiColPrio[fields[j].JsonTag]
+			return indexPrio(colUnique, fields[i].JsonTag, idxName) < indexPrio(colUnique, fields[j].JsonTag, idxName)
 		})
 	}
 }
 
-func buildDDLGormTag(col *ddlparser.Column, mysqlType string, multiColUnique map[string]string, multiColPrio map[string]int, tablePK map[string]bool, colDefaults map[string]string) string {
+func indexPrio(colUnique map[string][]indexRef, col, idxName string) int {
+	for _, r := range colUnique[col] {
+		if r.name == idxName {
+			return r.prio
+		}
+	}
+	return 0
+}
+
+func hasIndexRef(refs []indexRef, name string) bool {
+	for _, r := range refs {
+		if r.name == name {
+			return true
+		}
+	}
+	return false
+}
+
+func buildDDLGormTag(col *ddlparser.Column, mysqlType string, colUnique map[string][]indexRef,
+	colIndex map[string]string, colIndexPrio map[string]int, tablePK map[string]bool, colDefaults map[string]string) string {
 	parts := []string{
 		fmt.Sprintf("column:%s", col.Name),
 		fmt.Sprintf("type:%s", mysqlType),
@@ -276,12 +380,14 @@ func buildDDLGormTag(col *ddlparser.Column, mysqlType string, multiColUnique map
 	}
 
 	if !isPK {
-		if idxName, ok := multiColUnique[col.Name]; ok {
-			prio := multiColPrio[col.Name]
-			parts = append(parts, fmt.Sprintf("uniqueIndex:%s,priority:%d", idxName, prio))
+		for _, ref := range colUnique[col.Name] {
+			parts = append(parts, fmt.Sprintf("uniqueIndex:%s,priority:%d", ref.name, ref.prio))
 		}
 		if c.Unique {
 			parts = append(parts, fmt.Sprintf("uniqueIndex:uk_%s,priority:1", col.Name))
+		}
+		if idxName, ok := colIndex[col.Name]; ok {
+			parts = append(parts, fmt.Sprintf("index:%s,priority:%d", idxName, colIndexPrio[col.Name]))
 		} else if c.Key {
 			parts = append(parts, fmt.Sprintf("index:idx_%s,priority:1", col.Name))
 		}
